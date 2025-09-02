@@ -1,16 +1,169 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, CheckCircle, Clock, Syringe, Shield, Sparkles } from 'lucide-react';
+import { Plus, CheckCircle, Clock, Syringe, Shield, Sparkles, Calendar, AlertCircle, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from '@/components/ui/use-toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
+import { differenceInMonths, parseISO, addMonths } from 'date-fns';
+
+const vaccineSchedule = [
+    { name: 'BCG', ageMonths: 0, description: 'Tuberculose' },
+    { name: 'Hepatite B', ageMonths: 0, description: 'Primeira dose' },
+    { name: 'Pentavalente', ageMonths: 2, description: 'DTP + Hib + Hepatite B' },
+    { name: 'VIP/VOP', ageMonths: 2, description: 'Poliomielite' },
+    { name: 'Rotavírus', ageMonths: 2, description: 'Primeira dose' },
+    { name: 'Pneumocócica', ageMonths: 2, description: 'Primeira dose' },
+    { name: 'Meningocócica C', ageMonths: 3, description: 'Primeira dose' },
+    { name: 'Pentavalente 2ª dose', ageMonths: 4, description: 'Segunda dose' },
+    { name: 'VIP/VOP 2ª dose', ageMonths: 4, description: 'Segunda dose' },
+    { name: 'Rotavírus 2ª dose', ageMonths: 4, description: 'Segunda dose' },
+    { name: 'Pneumocócica 2ª dose', ageMonths: 4, description: 'Segunda dose' },
+    { name: 'Meningocócica C 2ª dose', ageMonths: 5, description: 'Segunda dose' },
+    { name: 'Pentavalente 3ª dose', ageMonths: 6, description: 'Terceira dose' },
+    { name: 'VIP/VOP 3ª dose', ageMonths: 6, description: 'Terceira dose' },
+    { name: 'Pneumocócica 3ª dose', ageMonths: 6, description: 'Terceira dose' },
+    { name: 'Febre Amarela', ageMonths: 9, description: 'Dose única' },
+    { name: 'Tríplice Viral', ageMonths: 12, description: 'Sarampo, Caxumba, Rubéola' },
+    { name: 'Pneumocócica Reforço', ageMonths: 12, description: 'Dose de reforço' },
+    { name: 'Meningocócica C Reforço', ageMonths: 12, description: 'Dose de reforço' },
+    { name: 'Hepatite A', ageMonths: 15, description: 'Dose única' },
+    { name: 'DTP Reforço', ageMonths: 15, description: 'Primeiro reforço' },
+    { name: 'Tríplice Viral 2ª dose', ageMonths: 15, description: 'Segunda dose' },
+    { name: 'Tetra Viral', ageMonths: 15, description: 'Sarampo, Caxumba, Rubéola, Varicela' },
+    { name: 'DTP 2º Reforço', ageMonths: 48, description: 'Segundo reforço' },
+];
+
+const VaccineScheduleCard = ({ baby }) => {
+    const babyAgeMonths = differenceInMonths(new Date(), parseISO(baby.birthDate));
+    const appliedVaccines = (baby.vaccines || []).map(v => v.name.toLowerCase());
+    
+    const upcomingVaccines = vaccineSchedule
+        .filter(v => v.ageMonths <= babyAgeMonths + 3 && v.ageMonths >= babyAgeMonths)
+        .filter(v => !appliedVaccines.some(applied => applied.includes(v.name.toLowerCase().split(' ')[0])));
+
+    const overdueVaccines = vaccineSchedule
+        .filter(v => v.ageMonths < babyAgeMonths)
+        .filter(v => !appliedVaccines.some(applied => applied.includes(v.name.toLowerCase().split(' ')[0])));
+
+    return (
+        <Card className="glass-card border-0 shadow-lg">
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                    <Calendar className="w-5 h-5 text-blue-600" />
+                    Calendário Vacinal
+                </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                {overdueVaccines.length > 0 && (
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-xl">
+                        <div className="flex items-center gap-2 mb-2">
+                            <AlertCircle className="w-4 h-4 text-red-600" />
+                            <span className="font-medium text-red-800">Vacinas em Atraso</span>
+                        </div>
+                        <div className="space-y-1">
+                            {overdueVaccines.slice(0, 3).map((vaccine, index) => (
+                                <div key={index} className="text-sm text-red-700">
+                                    • {vaccine.name} ({vaccine.ageMonths} meses)
+                                </div>
+                            ))}
+                            {overdueVaccines.length > 3 && (
+                                <div className="text-sm text-red-600">
+                                    +{overdueVaccines.length - 3} outras vacinas
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {upcomingVaccines.length > 0 && (
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                        <div className="flex items-center gap-2 mb-2">
+                            <Clock className="w-4 h-4 text-blue-600" />
+                            <span className="font-medium text-blue-800">Próximas Vacinas</span>
+                        </div>
+                        <div className="space-y-1">
+                            {upcomingVaccines.slice(0, 3).map((vaccine, index) => (
+                                <div key={index} className="text-sm text-blue-700">
+                                    • {vaccine.name} ({vaccine.ageMonths} meses) - {vaccine.description}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                <div className="text-center">
+                    <div className="text-2xl font-bold text-gray-800">
+                        {Math.round((appliedVaccines.length / vaccineSchedule.length) * 100)}%
+                    </div>
+                    <div className="text-sm text-gray-600">Calendário Completo</div>
+                </div>
+            </CardContent>
+        </Card>
+    );
+};
+
+const VaccineChart = ({ vaccines }) => {
+    const statusData = vaccines.reduce((acc, vaccine) => {
+        acc[vaccine.status] = (acc[vaccine.status] || 0) + 1;
+        return acc;
+    }, {});
+
+    const total = vaccines.length;
+    const completed = statusData.completed || 0;
+    const pending = statusData.pending || 0;
+
+    return (
+        <Card className="glass-card border-0 shadow-lg">
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                    <BarChart3 className="w-5 h-5 text-green-600" />
+                    Status das Vacinas
+                </CardTitle>
+            </CardHeader>
+            <CardContent>
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">Aplicadas</span>
+                        <span className="text-sm text-gray-500">{completed}</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div 
+                            className="bg-green-500 h-2 rounded-full transition-all duration-500"
+                            style={{ width: `${total > 0 ? (completed / total) * 100 : 0}%` }}
+                        />
+                    </div>
+                    
+                    <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">Pendentes</span>
+                        <span className="text-sm text-gray-500">{pending}</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div 
+                            className="bg-orange-500 h-2 rounded-full transition-all duration-500"
+                            style={{ width: `${total > 0 ? (pending / total) * 100 : 0}%` }}
+                        />
+                    </div>
+
+                    <div className="pt-2 border-t">
+                        <div className="text-center">
+                            <div className="text-lg font-bold text-gray-800">{total}</div>
+                            <div className="text-xs text-gray-600">Total de Vacinas</div>
+                        </div>
+                    </div>
+                </div>
+            </CardContent>
+        </Card>
+    );
+};
 
 const VaccinesContent = ({ baby, updateBabyData }) => {
     const [showForm, setShowForm] = useState(false);
     const [newVaccine, setNewVaccine] = useState({ name: '', date: '' });
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [showSchedule, setShowSchedule] = useState(false);
 
     const handleAddVaccine = async () => {
         if (!newVaccine.name || !newVaccine.date) {
@@ -109,14 +262,59 @@ const VaccinesContent = ({ baby, updateBabyData }) => {
                                 )}
                             </div>
                         </div>
-                        <Button 
-                            onClick={() => setShowForm(!showForm)}
-                            className="btn-gradient text-white border-0 w-full sm:w-auto"
-                        >
-                            <Plus className="w-4 h-4 mr-2" />
-                            {showForm ? 'Cancelar' : 'Nova Vacina'}
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                            <Button 
+                                variant={showSchedule ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => setShowSchedule(!showSchedule)}
+                                className="rounded-xl"
+                            >
+                                <Calendar className="w-4 h-4 mr-2" />
+                                Calendário
+                            </Button>
+                            <Button 
+                                onClick={() => setShowForm(!showForm)}
+                                className="btn-gradient text-white border-0"
+                            >
+                                <Plus className="w-4 h-4 mr-2" />
+                                {showForm ? 'Cancelar' : 'Nova Vacina'}
+                            </Button>
+                        </div>
                     </div>
+
+                    {/* Analytics Cards */}
+                    {vaccines.length > 0 && (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                            <VaccineChart vaccines={vaccines} />
+                            <VaccineScheduleCard baby={baby} />
+                        </div>
+                    )}
+
+                    {/* Vaccine Schedule */}
+                    {showSchedule && (
+                        <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            className="mb-6"
+                        >
+                            <Card className="gradient-card border-0">
+                                <CardHeader>
+                                    <CardTitle>Calendário Nacional de Vacinação</CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto">
+                                        {vaccineSchedule.map((vaccine, index) => (
+                                            <div key={index} className="p-3 bg-white rounded-lg shadow-sm">
+                                                <div className="font-medium text-sm">{vaccine.name}</div>
+                                                <div className="text-xs text-gray-600">{vaccine.ageMonths} meses</div>
+                                                <div className="text-xs text-gray-500 mt-1">{vaccine.description}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        </motion.div>
+                    )}
 
                     {/* Progress bar */}
                     {vaccines.length > 0 && (

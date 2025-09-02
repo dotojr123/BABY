@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { format, differenceInMonths, differenceInDays, parseISO } from 'date-fns';
+import { format, differenceInMonths, differenceInDays, parseISO, subDays, isAfter } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Calendar, Pill, Shield, TrendingUp, Edit, Plus, Heart, Star, Clock, Activity } from 'lucide-react';
+import { Calendar, Pill, Shield, TrendingUp, Edit, Plus, Heart, Star, Clock, Activity, AlertTriangle, Target, Zap } from 'lucide-react';
 
 const getBabyAge = (birthDate) => {
     const today = new Date();
@@ -53,9 +53,146 @@ const getStats = (baby) => {
     };
 };
 
-const StatCard = ({ icon: Icon, title, value, subtitle, gradient, delay = 0 }) => (
+const getInsights = (baby) => {
+    const now = new Date();
+    const insights = [];
+
+    // Check for overdue medications
+    const overdueMeds = (baby.events || []).filter(e => 
+        e.type === 'medication' && !e.completed && new Date(e.date) < now
+    );
+    if (overdueMeds.length > 0) {
+        insights.push({
+            type: 'warning',
+            icon: AlertTriangle,
+            title: 'Medicamentos Atrasados',
+            description: `${overdueMeds.length} medicamento(s) precisam de atenção`,
+            color: 'text-red-600 bg-red-50'
+        });
+    }
+
+    // Check for upcoming vaccines
+    const upcomingVaccines = (baby.vaccines || []).filter(v => 
+        v.status === 'pending' && isAfter(new Date(v.date), now) && 
+        new Date(v.date) <= subDays(now, -7)
+    );
+    if (upcomingVaccines.length > 0) {
+        insights.push({
+            type: 'info',
+            icon: Shield,
+            title: 'Vacinas Próximas',
+            description: `${upcomingVaccines.length} vacina(s) agendada(s) para esta semana`,
+            color: 'text-blue-600 bg-blue-50'
+        });
+    }
+
+    // Check milestone progress
+    const recentMilestones = (baby.milestones || []).filter(m => 
+        m.achieved && new Date(m.date) >= subDays(now, 30)
+    );
+    if (recentMilestones.length > 0) {
+        insights.push({
+            type: 'success',
+            icon: Target,
+            title: 'Marcos Recentes',
+            description: `${recentMilestones.length} marco(s) conquistado(s) este mês`,
+            color: 'text-green-600 bg-green-50'
+        });
+    }
+
+    // Activity insight
+    const recentActivity = [
+        ...(baby.events || []).filter(e => new Date(e.date) >= subDays(now, 7)),
+        ...(baby.vaccines || []).filter(v => new Date(v.date) >= subDays(now, 7)),
+        ...(baby.milestones || []).filter(m => new Date(m.date) >= subDays(now, 7))
+    ];
+    if (recentActivity.length > 5) {
+        insights.push({
+            type: 'activity',
+            icon: Zap,
+            title: 'Semana Ativa',
+            description: `${recentActivity.length} atividades registradas esta semana`,
+            color: 'text-purple-600 bg-purple-50'
+        });
+    }
+
+    return insights;
+};
+
+const InsightCard = ({ insight, delay = 0 }) => (
     <motion.div
-        className={`stat-card floating-card ${gradient}`}
+        className={`p-4 rounded-2xl border-l-4 ${insight.color} floating-card`}
+        initial={{ opacity: 0, x: -20 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ delay }}
+    >
+        <div className="flex items-start gap-3">
+            <insight.icon className="w-5 h-5 mt-0.5 flex-shrink-0" />
+            <div>
+                <h4 className="font-semibold text-sm">{insight.title}</h4>
+                <p className="text-xs opacity-80 mt-1">{insight.description}</p>
+            </div>
+        </div>
+    </motion.div>
+);
+
+const WeeklyActivity = ({ baby }) => {
+    const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+    const today = new Date();
+    const weekData = Array.from({ length: 7 }, (_, i) => {
+        const date = subDays(today, 6 - i);
+        const dayEvents = [
+            ...(baby.events || []).filter(e => 
+                format(new Date(e.date), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
+            ),
+            ...(baby.vaccines || []).filter(v => 
+                format(new Date(v.date), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
+            ),
+            ...(baby.milestones || []).filter(m => 
+                format(new Date(m.date), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
+            )
+        ];
+        return {
+            day: weekDays[date.getDay()],
+            count: dayEvents.length,
+            isToday: format(date, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd')
+        };
+    });
+
+    const maxCount = Math.max(...weekData.map(d => d.count), 1);
+
+    return (
+        <Card className="glass-card border-0 shadow-lg">
+            <CardHeader>
+                <CardTitle className="text-lg">Atividade da Semana</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <div className="flex items-end justify-between gap-2 h-20">
+                    {weekData.map((day, index) => (
+                        <div key={index} className="flex flex-col items-center gap-2 flex-1">
+                            <div 
+                                className={`w-full rounded-t-lg transition-all duration-500 ${
+                                    day.isToday ? 'bg-blue-500' : 'bg-gray-300'
+                                }`}
+                                style={{ 
+                                    height: `${(day.count / maxCount) * 60}px`,
+                                    minHeight: day.count > 0 ? '8px' : '2px'
+                                }}
+                            />
+                            <span className={`text-xs ${day.isToday ? 'font-bold text-blue-600' : 'text-gray-500'}`}>
+                                {day.day}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            </CardContent>
+        </Card>
+    );
+};
+
+const StatCard = ({ icon: Icon, title, value, subtitle, gradient, delay = 0, trend }) => (
+    <motion.div
+        className={`stat-card floating-card ${gradient} relative overflow-hidden`}
         style={{ '--color-start': gradient.includes('blue') ? '#3b82f6' : gradient.includes('green') ? '#10b981' : gradient.includes('purple') ? '#8b5cf6' : '#f59e0b' }}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -66,7 +203,12 @@ const StatCard = ({ icon: Icon, title, value, subtitle, gradient, delay = 0 }) =
             <div className="flex items-center justify-between mb-2">
                 <Icon className="w-8 h-8 text-white/90" />
                 <div className="text-right">
-                    <div className="text-2xl font-bold text-white">{value}</div>
+                    <div className="text-2xl font-bold text-white flex items-center gap-1">
+                        {value}
+                        {trend && (
+                            <TrendingUp className="w-4 h-4 text-white/80" />
+                        )}
+                    </div>
                     {subtitle && <div className="text-xs text-white/80">{subtitle}</div>}
                 </div>
             </div>
@@ -100,6 +242,7 @@ const DashboardContent = ({ baby, setActiveTab, updateBabyData, onEditBaby, onAd
     const [isLoading, setIsLoading] = useState(true);
     const [nextEvents, setNextEvents] = useState([]);
     const [stats, setStats] = useState({});
+    const [insights, setInsights] = useState([]);
 
     useEffect(() => {
         const loadDashboard = async () => {
@@ -108,8 +251,11 @@ const DashboardContent = ({ baby, setActiveTab, updateBabyData, onEditBaby, onAd
             
             const events = getNextEvents(baby);
             const babyStats = getStats(baby);
+            const babyInsights = getInsights(baby);
+            
             setNextEvents(events);
             setStats(babyStats);
+            setInsights(babyInsights);
             setIsLoading(false);
         };
 
@@ -182,6 +328,26 @@ const DashboardContent = ({ baby, setActiveTab, updateBabyData, onEditBaby, onAd
                 </div>
             </motion.div>
 
+            {/* Insights */}
+            {insights.length > 0 && (
+                <motion.div
+                    className="space-y-4"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.2 }}
+                >
+                    <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                        <Zap className="w-5 h-5 text-yellow-500" />
+                        Insights Inteligentes
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {insights.map((insight, index) => (
+                            <InsightCard key={index} insight={insight} delay={index * 0.1} />
+                        ))}
+                    </div>
+                </motion.div>
+            )}
+
             {/* Statistics Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard
@@ -191,6 +357,7 @@ const DashboardContent = ({ baby, setActiveTab, updateBabyData, onEditBaby, onAd
                     subtitle={`de ${stats.events?.total || 0} total`}
                     gradient="gradient-blue"
                     delay={0.1}
+                    trend={stats.events?.completed > 0}
                 />
                 <StatCard
                     icon={Shield}
@@ -218,65 +385,72 @@ const DashboardContent = ({ baby, setActiveTab, updateBabyData, onEditBaby, onAd
                 />
             </div>
 
-            {/* Next Events Card */}
-            <motion.div
-                className="glass-card rounded-3xl p-6"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-            >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-                    <div className="flex items-center">
-                        <div className="relative">
-                            <Calendar className="w-8 h-8 mr-3 text-green-600" />
-                            <div className="pulse-ring text-green-600"></div>
-                        </div>
-                        <h2 className="text-2xl font-bold gradient-text">Próximos Eventos</h2>
-                    </div>
-                    <Button onClick={onAddEvent} className="btn-gradient text-white border-0 w-full sm:w-auto">
-                        <Plus className="w-4 h-4 mr-2" />
-                        Adicionar
-                    </Button>
+            {/* Weekly Activity Chart */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-1">
+                    <WeeklyActivity baby={baby} />
                 </div>
                 
-                <div className="space-y-4">
-                    {nextEvents.length > 0 ? (
-                        nextEvents.map((event, index) => (
-                            <motion.div
-                                key={event.id}
-                                className="gradient-card rounded-2xl p-4 floating-card"
-                                initial={{ opacity: 0, x: -20 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                transition={{ delay: 0.1 * index }}
-                            >
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center mb-2">
-                                            <Clock className="w-4 h-4 text-blue-600 mr-2" />
-                                            <CardTitle className="text-lg truncate">{event.name}</CardTitle>
-                                        </div>
-                                        {event.details && (
-                                            <CardDescription className="text-sm text-gray-600">{event.details}</CardDescription>
-                                        )}
-                                    </div>
-                                    <div className="text-left sm:text-right flex-shrink-0 bg-white/50 rounded-lg p-2">
-                                        <p className="text-sm font-bold text-gray-800">{format(event.date, 'dd/MM/yyyy', { locale: ptBR })}</p>
-                                        <p className="text-xs text-gray-600">{format(event.date, 'HH:mm', { locale: ptBR })}</p>
-                                    </div>
-                                </div>
-                            </motion.div>
-                        ))
-                    ) : (
-                        <div className="text-center py-12">
-                            <div className="animate-float">
-                                <Calendar className="w-16 h-16 mx-auto text-gray-400 mb-4" />
+                {/* Next Events Card */}
+                <motion.div
+                    className="lg:col-span-2 glass-card rounded-3xl p-6"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
+                >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                        <div className="flex items-center">
+                            <div className="relative">
+                                <Calendar className="w-8 h-8 mr-3 text-green-600" />
+                                <div className="pulse-ring text-green-600"></div>
                             </div>
-                            <p className="text-gray-500 text-lg font-medium">Nenhum evento futuro agendado.</p>
-                            <p className="text-gray-400 text-sm mt-1">Clique em "Adicionar" para criar um novo evento</p>
+                            <h2 className="text-2xl font-bold gradient-text">Próximos Eventos</h2>
                         </div>
-                    )}
-                </div>
-            </motion.div>
+                        <Button onClick={onAddEvent} className="btn-gradient text-white border-0 w-full sm:w-auto">
+                            <Plus className="w-4 h-4 mr-2" />
+                            Adicionar
+                        </Button>
+                    </div>
+                    
+                    <div className="space-y-4">
+                        {nextEvents.length > 0 ? (
+                            nextEvents.map((event, index) => (
+                                <motion.div
+                                    key={event.id}
+                                    className="gradient-card rounded-2xl p-4 floating-card"
+                                    initial={{ opacity: 0, x: -20 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    transition={{ delay: 0.1 * index }}
+                                >
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center mb-2">
+                                                <Clock className="w-4 h-4 text-blue-600 mr-2" />
+                                                <CardTitle className="text-lg truncate">{event.name}</CardTitle>
+                                            </div>
+                                            {event.details && (
+                                                <CardDescription className="text-sm text-gray-600">{event.details}</CardDescription>
+                                            )}
+                                        </div>
+                                        <div className="text-left sm:text-right flex-shrink-0 bg-white/50 rounded-lg p-2">
+                                            <p className="text-sm font-bold text-gray-800">{format(event.date, 'dd/MM/yyyy', { locale: ptBR })}</p>
+                                            <p className="text-xs text-gray-600">{format(event.date, 'HH:mm', { locale: ptBR })}</p>
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            ))
+                        ) : (
+                            <div className="text-center py-12">
+                                <div className="animate-float">
+                                    <Calendar className="w-16 h-16 mx-auto text-gray-400 mb-4" />
+                                </div>
+                                <p className="text-gray-500 text-lg font-medium">Nenhum evento futuro agendado.</p>
+                                <p className="text-gray-400 text-sm mt-1">Clique em "Adicionar" para criar um novo evento</p>
+                            </div>
+                        )}
+                    </div>
+                </motion.div>
+            </div>
 
             {/* Quick Access Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
