@@ -1,14 +1,28 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageCircle, Send, X, Bot, User, Mic, MicOff, Paperclip, FileText, Image as ImageIcon, Play, Pause, Download } from 'lucide-react';
+import { MessageCircle, Send, X, Bot, User, Mic, MicOff, Paperclip, FileText, Image as ImageIcon, Play, Pause } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardContent, CardFooter } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import FileUpload from '@/components/FileUpload';
 import { useAppContext } from '@/App';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { toast } from '@/components/ui/use-toast';
+
+// Importação dinâmica do Google Generative AI
+let GoogleGenerativeAI = null;
+const loadGoogleAI = async () => {
+    if (!GoogleGenerativeAI) {
+        try {
+            const module = await import('@google/generative-ai');
+            GoogleGenerativeAI = module.GoogleGenerativeAI;
+        } catch (error) {
+            console.error('Erro ao carregar Google Generative AI:', error);
+            throw new Error('Não foi possível carregar a biblioteca do Google AI');
+        }
+    }
+    return GoogleGenerativeAI;
+};
 
 const TypingIndicator = () => (
     <div className="flex justify-start">
@@ -39,85 +53,88 @@ const AudioRecorder = ({ onAudioRecorded, isRecording, onToggleRecording, onTran
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             
             // Setup audio visualization
-            audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-            analyserRef.current = audioContextRef.current.createAnalyser();
-            const source = audioContextRef.current.createMediaStreamSource(stream);
-            source.connect(analyserRef.current);
-            
-            analyserRef.current.fftSize = 256;
-            const bufferLength = analyserRef.current.frequencyBinCount;
-            const dataArray = new Uint8Array(bufferLength);
-            
-            const updateAudioLevel = () => {
-                if (analyserRef.current) {
-                    analyserRef.current.getByteFrequencyData(dataArray);
-                    const average = dataArray.reduce((a, b) => a + b) / bufferLength;
-                    setAudioLevel(average / 255);
-                    animationRef.current = requestAnimationFrame(updateAudioLevel);
-                }
-            };
-            updateAudioLevel();
+            try {
+                audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+                analyserRef.current = audioContextRef.current.createAnalyser();
+                const source = audioContextRef.current.createMediaStreamSource(stream);
+                source.connect(analyserRef.current);
+                
+                analyserRef.current.fftSize = 256;
+                const bufferLength = analyserRef.current.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+                
+                const updateAudioLevel = () => {
+                    if (analyserRef.current) {
+                        analyserRef.current.getByteFrequencyData(dataArray);
+                        const average = dataArray.reduce((a, b) => a + b) / bufferLength;
+                        setAudioLevel(average / 255);
+                        animationRef.current = requestAnimationFrame(updateAudioLevel);
+                    }
+                };
+                updateAudioLevel();
+            } catch (audioError) {
+                console.warn('Audio visualization não disponível:', audioError);
+            }
 
             // Setup speech recognition for real-time transcription
             if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                recognitionRef.current = new SpeechRecognition();
-                recognitionRef.current.continuous = true;
-                recognitionRef.current.interimResults = true;
-                recognitionRef.current.lang = 'pt-BR';
-
-                let finalTranscript = '';
-
-                recognitionRef.current.onresult = (event) => {
-                    let interimTranscript = '';
-
-                    for (let i = event.resultIndex; i < event.results.length; i++) {
-                        const transcript = event.results[i][0].transcript;
-                        if (event.results[i].isFinal) {
-                            finalTranscript += transcript + ' ';
-                        } else {
-                            interimTranscript += transcript;
-                        }
-                    }
-
-                    const currentTranscription = finalTranscript + interimTranscript;
-                    setTranscription(currentTranscription);
-                    onTranscriptionUpdate(currentTranscription);
-                };
-
-                recognitionRef.current.onerror = (event) => {
-                    console.error('Speech recognition error:', event.error);
-                    if (event.error === 'no-speech') {
-                        return; // Silently handle no speech
-                    }
-                    if (event.error !== 'aborted') {
-                        toast({
-                            title: "Erro na Transcrição",
-                            description: "Não foi possível transcrever o áudio. Continue falando.",
-                            variant: "destructive",
-                        });
-                    }
-                };
-
-                recognitionRef.current.onstart = () => {
-                    console.log('Speech recognition started');
-                };
-
-                recognitionRef.current.onend = () => {
-                    console.log('Speech recognition ended');
-                };
-
                 try {
+                    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                    recognitionRef.current = new SpeechRecognition();
+                    recognitionRef.current.continuous = true;
+                    recognitionRef.current.interimResults = true;
+                    recognitionRef.current.lang = 'pt-BR';
+
+                    let finalTranscript = '';
+
+                    recognitionRef.current.onresult = (event) => {
+                        let interimTranscript = '';
+
+                        for (let i = event.resultIndex; i < event.results.length; i++) {
+                            const transcript = event.results[i][0].transcript;
+                            if (event.results[i].isFinal) {
+                                finalTranscript += transcript + ' ';
+                            } else {
+                                interimTranscript += transcript;
+                            }
+                        }
+
+                        const currentTranscription = finalTranscript + interimTranscript;
+                        setTranscription(currentTranscription);
+                        onTranscriptionUpdate(currentTranscription);
+                    };
+
+                    recognitionRef.current.onerror = (event) => {
+                        console.error('Speech recognition error:', event.error);
+                        if (event.error === 'no-speech') {
+                            return; // Silently handle no speech
+                        }
+                        if (event.error !== 'aborted') {
+                            toast({
+                                title: "Erro na Transcrição",
+                                description: "Não foi possível transcrever o áudio. Continue falando.",
+                                variant: "destructive",
+                            });
+                        }
+                    };
+
+                    recognitionRef.current.onstart = () => {
+                        console.log('Speech recognition started');
+                    };
+
+                    recognitionRef.current.onend = () => {
+                        console.log('Speech recognition ended');
+                    };
+
                     recognitionRef.current.start();
-                } catch (error) {
-                    console.error('Error starting speech recognition:', error);
+                } catch (speechError) {
+                    console.warn('Speech recognition não disponível:', speechError);
+                    toast({
+                        title: "Transcrição Não Suportada",
+                        description: "Seu navegador não suporta transcrição de áudio em tempo real.",
+                        variant: "destructive",
+                    });
                 }
-            } else {
-                toast({
-                    title: "Transcrição Não Suportada",
-                    description: "Seu navegador não suporta transcrição de áudio em tempo real.",
-                    variant: "destructive",
-                });
             }
 
             mediaRecorderRef.current = new MediaRecorder(stream);
@@ -137,7 +154,7 @@ const AudioRecorder = ({ onAudioRecorded, isRecording, onToggleRecording, onTran
                 // Cleanup
                 stream.getTracks().forEach(track => track.stop());
                 if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-                    audioContextRef.current.close();
+                    audioContextRef.current.close().catch(console.warn);
                 }
                 if (animationRef.current) {
                     cancelAnimationFrame(animationRef.current);
@@ -153,7 +170,7 @@ const AudioRecorder = ({ onAudioRecorded, isRecording, onToggleRecording, onTran
                 setTranscription('');
             };
 
-            mediaRecorderRef.current.start(100); // Collect data every 100ms
+            mediaRecorderRef.current.start(100);
             onToggleRecording(true);
         } catch (error) {
             console.error('Erro ao acessar microfone:', error);
@@ -224,7 +241,7 @@ const AudioPlayer = ({ audioUrl, onRemove }) => {
         if (!audio) return;
 
         const updateTime = () => setCurrentTime(audio.currentTime);
-        const updateDuration = () => setDuration(audio.duration);
+        const updateDuration = () => setDuration(audio.duration || 0);
         const handleEnded = () => setIsPlaying(false);
 
         audio.addEventListener('timeupdate', updateTime);
@@ -240,15 +257,18 @@ const AudioPlayer = ({ audioUrl, onRemove }) => {
 
     const togglePlay = () => {
         const audio = audioRef.current;
+        if (!audio) return;
+        
         if (isPlaying) {
             audio.pause();
         } else {
-            audio.play();
+            audio.play().catch(console.warn);
         }
         setIsPlaying(!isPlaying);
     };
 
     const formatTime = (time) => {
+        if (!time || isNaN(time)) return '0:00';
         const minutes = Math.floor(time / 60);
         const seconds = Math.floor(time % 60);
         return `${minutes}:${seconds.toString().padStart(2, '0')}`;
@@ -388,7 +408,8 @@ Altura: ${baby.height || 'Não informado'}`;
                 try {
                     await new Promise(resolve => setTimeout(resolve, 800));
                     
-                    const genAI = new GoogleGenerativeAI(settings.geminiApiKey.trim());
+                    const GoogleAI = await loadGoogleAI();
+                    const genAI = new GoogleAI(settings.geminiApiKey.trim());
                     
                     // Usar Gemini 2.0 Flash
                     const newModel = genAI.getGenerativeModel({ 
@@ -494,7 +515,8 @@ ESTILO DE CONVERSA:
                         errorMessage = "🤖 Tentando usar um modelo alternativo...";
                         // Fallback para modelo anterior
                         try {
-                            const genAI = new GoogleGenerativeAI(settings.geminiApiKey.trim());
+                            const GoogleAI = await loadGoogleAI();
+                            const genAI = new GoogleAI(settings.geminiApiKey.trim());
                             const fallbackModel = genAI.getGenerativeModel({ 
                                 model: "gemini-1.5-flash",
                                 generationConfig: {
@@ -512,6 +534,8 @@ ESTILO DE CONVERSA:
                         } catch (fallbackError) {
                             errorMessage = "❌ Não consegui conectar. Verifique sua chave da API.";
                         }
+                    } else if (error.message?.includes('biblioteca')) {
+                        errorMessage = "📚 Erro ao carregar biblioteca. Recarregue a página.";
                     }
                     
                     if (messages.length === 0) {
@@ -594,17 +618,22 @@ ESTILO DE CONVERSA:
     };
 
     const convertFileToGenerativePart = async (file) => {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onloadend = () => {
-                const base64Data = reader.result.split(',')[1];
-                resolve({
-                    inlineData: {
-                        data: base64Data,
-                        mimeType: file.type
-                    }
-                });
+                try {
+                    const base64Data = reader.result.split(',')[1];
+                    resolve({
+                        inlineData: {
+                            data: base64Data,
+                            mimeType: file.type
+                        }
+                    });
+                } catch (error) {
+                    reject(error);
+                }
             };
+            reader.onerror = reject;
             reader.readAsDataURL(file);
         });
     };
@@ -675,17 +704,21 @@ Responda de forma natural e conversacional. Se a resposta for longa, eu vou divi
                         file.type?.startsWith('video/') ||
                         file.type?.startsWith('audio/')) {
                         
-                        const generativePart = await convertFileToGenerativePart(file);
-                        parts.push(generativePart);
-                        
-                        if (file.type?.startsWith('image/')) {
-                            parts.push("Analise esta imagem relacionada ao bebê.");
-                        } else if (file.type === 'application/pdf') {
-                            parts.push("Analise este documento.");
-                        } else if (file.type?.startsWith('video/')) {
-                            parts.push("Analise este vídeo do bebê.");
-                        } else if (file.type?.startsWith('audio/')) {
-                            parts.push("Analise este áudio.");
+                        try {
+                            const generativePart = await convertFileToGenerativePart(file);
+                            parts.push(generativePart);
+                            
+                            if (file.type?.startsWith('image/')) {
+                                parts.push("Analise esta imagem relacionada ao bebê.");
+                            } else if (file.type === 'application/pdf') {
+                                parts.push("Analise este documento.");
+                            } else if (file.type?.startsWith('video/')) {
+                                parts.push("Analise este vídeo do bebê.");
+                            } else if (file.type?.startsWith('audio/')) {
+                                parts.push("Analise este áudio.");
+                            }
+                        } catch (fileError) {
+                            console.error('Erro ao processar arquivo:', fileError);
                         }
                     }
                 }
