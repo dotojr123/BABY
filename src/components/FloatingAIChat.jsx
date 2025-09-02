@@ -45,51 +45,76 @@ const FloatingAIChat = () => {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isInitializing, setIsInitializing] = useState(true);
+    const [connectionError, setConnectionError] = useState(false);
     const chatEndRef = useRef(null);
     const [chat, setChat] = useState(null);
 
     useEffect(() => {
         const initializeChat = async () => {
             setIsInitializing(true);
+            setConnectionError(false);
             
-            if (settings.geminiApiKey) {
+            if (settings.geminiApiKey && settings.geminiApiKey.trim() !== '') {
                 try {
                     // Simulate initialization delay
                     await new Promise(resolve => setTimeout(resolve, 1000));
                     
-                    const genAI = new GoogleGenerativeAI(settings.geminiApiKey);
-                    const model = genAI.getGenerativeModel({ model: "gemini-pro"});
-                    const newChat = model.startChat({
-                        history: [],
+                    const genAI = new GoogleGenerativeAI(settings.geminiApiKey.trim());
+                    const model = genAI.getGenerativeModel({ 
+                        model: "gemini-pro",
                         generationConfig: {
                             maxOutputTokens: 500,
+                            temperature: 0.7,
                         },
                     });
-                    setChat(newChat);
+                    
+                    // Test the connection with a simple prompt
+                    const testResult = await model.generateContent("Responda apenas 'OK' se você está funcionando.");
+                    const testResponse = await testResult.response;
+                    const testText = testResponse.text();
+                    
+                    if (testText) {
+                        const newChat = model.startChat({
+                            history: [],
+                            generationConfig: {
+                                maxOutputTokens: 500,
+                                temperature: 0.7,
+                            },
+                        });
+                        setChat(newChat);
+                        
+                        if (messages.length === 0) {
+                            setMessages([{
+                                id: 1,
+                                role: 'model',
+                                parts: "Olá! Sou a Angel IA, sua assistente especializada em cuidados infantis. Como posso ajudar com o desenvolvimento, saúde ou rotina do seu bebê hoje? 👶✨"
+                            }]);
+                        }
+                        setConnectionError(false);
+                    }
+                } catch (error) {
+                    console.error("Erro ao inicializar o Gemini:", error);
+                    setConnectionError(true);
+                    setChat(null);
                     
                     if (messages.length === 0) {
                         setMessages([{
                             id: 1,
                             role: 'model',
-                            parts: "Olá! Sou a Angel IA. Como posso ajudar com o desenvolvimento, saúde ou rotina do seu bebê hoje?"
-                        }]);
-                    }
-                } catch (error) {
-                    console.error("Erro ao inicializar o Gemini:", error);
-                    if (messages.length === 0) {
-                        setMessages([{
-                            id: 1,
-                            role: 'model',
-                            parts: "A chave da API Gemini parece inválida ou está faltando. Por favor, verifique em Configurações."
+                            parts: "❌ Erro de conexão: Verifique se sua chave da API do Google Gemini está correta nas Configurações. A chave deve começar com 'AIza...' e ter acesso à API Gemini."
                         }]);
                     }
                 }
-            } else if (messages.length === 0) {
-                setMessages([{
-                    id: 1,
-                    role: 'model',
-                    parts: "Olá! Para começar, por favor, insira sua chave da API do Google Gemini na página de Configurações."
-                }]);
+            } else {
+                setConnectionError(true);
+                setChat(null);
+                if (messages.length === 0) {
+                    setMessages([{
+                        id: 1,
+                        role: 'model',
+                        parts: "🔑 Para começar a conversar, você precisa configurar sua chave da API do Google Gemini nas Configurações. \n\n📝 Como obter:\n1. Acesse https://makersuite.google.com/app/apikey\n2. Crie uma nova chave API\n3. Cole a chave nas Configurações do app"
+                    }]);
+                }
             }
             
             setIsInitializing(false);
@@ -105,27 +130,57 @@ const FloatingAIChat = () => {
     useEffect(scrollToBottom, [messages]);
 
     const handleSendMessage = async () => {
-        if (input.trim() === '' || isLoading || !chat) return;
+        if (input.trim() === '' || isLoading || !chat || connectionError) return;
 
-        const userMessage = { id: Date.now(), role: 'user', parts: input };
+        const userMessage = { id: Date.now(), role: 'user', parts: input.trim() };
         setMessages(prev => [...prev, userMessage]);
+        const currentInput = input.trim();
         setInput('');
         setIsLoading(true);
 
         try {
-            const result = await chat.sendMessage(input);
+            // Add context about baby care to the prompt
+            const contextualPrompt = `Como Angel IA, assistente especializada em cuidados infantis, responda de forma útil e carinhosa sobre: ${currentInput}`;
+            
+            const result = await chat.sendMessage(contextualPrompt);
             const response = await result.response;
             const text = response.text();
-            const aiMessage = { id: Date.now() + 1, role: 'model', parts: text };
-            setMessages(prev => [...prev, aiMessage]);
+            
+            if (text && text.trim() !== '') {
+                const aiMessage = { id: Date.now() + 1, role: 'model', parts: text };
+                setMessages(prev => [...prev, aiMessage]);
+            } else {
+                throw new Error('Resposta vazia da API');
+            }
         } catch (error) {
             console.error("Erro ao enviar mensagem para o Gemini:", error);
-            const errorMessage = { 
+            
+            let errorMessage = "Desculpe, ocorreu um erro ao processar sua solicitação. ";
+            
+            if (error.message?.includes('API_KEY_INVALID')) {
+                errorMessage = "🔑 Chave da API inválida. Verifique sua chave do Gemini nas Configurações.";
+            } else if (error.message?.includes('QUOTA_EXCEEDED')) {
+                errorMessage = "📊 Cota da API excedida. Tente novamente mais tarde ou verifique seu plano do Google AI.";
+            } else if (error.message?.includes('BLOCKED')) {
+                errorMessage = "🚫 Conteúdo bloqueado. Tente reformular sua pergunta de forma mais específica sobre cuidados infantis.";
+            } else if (error.message?.includes('NETWORK')) {
+                errorMessage = "🌐 Erro de conexão. Verifique sua internet e tente novamente.";
+            } else {
+                errorMessage += "Tente novamente em alguns instantes.";
+            }
+            
+            const errorResponse = { 
                 id: Date.now() + 1, 
                 role: 'model', 
-                parts: "Desculpe, ocorreu um erro ao processar sua solicitação. Verifique sua conexão e tente novamente." 
+                parts: errorMessage
             };
-            setMessages(prev => [...prev, errorMessage]);
+            setMessages(prev => [...prev, errorResponse]);
+            
+            // If it's an API key error, mark as connection error
+            if (error.message?.includes('API_KEY_INVALID')) {
+                setConnectionError(true);
+                setChat(null);
+            }
         } finally {
             setIsLoading(false);
         }
@@ -136,6 +191,10 @@ const FloatingAIChat = () => {
             e.preventDefault();
             handleSendMessage();
         }
+    };
+
+    const canSendMessage = () => {
+        return !isLoading && !isInitializing && chat && !connectionError && input.trim() !== '';
     };
 
     return (
@@ -152,13 +211,19 @@ const FloatingAIChat = () => {
                         <Card className="h-[70vh] sm:h-[60vh] flex flex-col shadow-2xl">
                             <CardHeader className="flex flex-row items-center justify-between p-3 sm:p-4 border-b">
                                 <div className="flex items-center space-x-2">
-                                    <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-blue-500 to-pink-500 rounded-full flex items-center justify-center">
+                                    <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center ${
+                                        connectionError 
+                                            ? 'bg-gradient-to-r from-red-500 to-orange-500' 
+                                            : 'bg-gradient-to-r from-blue-500 to-pink-500'
+                                    }`}>
                                         <Bot className="w-4 h-4 sm:w-6 sm:h-6 text-white" />
                                     </div>
                                     <div>
                                         <h3 className="font-semibold text-sm sm:text-base">Angel IA</h3>
                                         <p className="text-xs text-muted-foreground">
-                                            {isInitializing ? 'Inicializando...' : 'Online'}
+                                            {isInitializing ? 'Inicializando...' : 
+                                             connectionError ? 'Erro de conexão' : 
+                                             'Online'}
                                         </p>
                                     </div>
                                 </div>
@@ -175,14 +240,22 @@ const FloatingAIChat = () => {
                                         {messages.map((msg) => (
                                             <div key={msg.id} className={`flex items-start gap-2 sm:gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                                 {msg.role === 'model' && (
-                                                    <div className="w-6 h-6 sm:w-8 sm:h-8 bg-primary text-primary-foreground rounded-full flex items-center justify-center flex-shrink-0">
+                                                    <div className={`w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                                                        connectionError 
+                                                            ? 'bg-red-500 text-white' 
+                                                            : 'bg-primary text-primary-foreground'
+                                                    }`}>
                                                         <Bot className="w-3 h-3 sm:w-5 sm:h-5" />
                                                     </div>
                                                 )}
                                                 <div className={`max-w-[75%] sm:max-w-xs md:max-w-sm p-2 sm:p-3 rounded-2xl text-xs sm:text-sm ${
                                                     msg.role === 'user' 
                                                         ? 'bg-primary text-primary-foreground rounded-br-none' 
-                                                        : 'bg-secondary text-secondary-foreground rounded-bl-none'
+                                                        : connectionError && msg.parts.includes('❌')
+                                                            ? 'bg-red-50 text-red-800 border border-red-200 rounded-bl-none'
+                                                            : msg.parts.includes('🔑')
+                                                                ? 'bg-blue-50 text-blue-800 border border-blue-200 rounded-bl-none'
+                                                                : 'bg-secondary text-secondary-foreground rounded-bl-none'
                                                 }`}>
                                                    <p style={{whiteSpace: 'pre-wrap', wordBreak: 'break-word'}}>{msg.parts}</p>
                                                 </div>
@@ -202,19 +275,19 @@ const FloatingAIChat = () => {
                             <CardFooter className="p-3 sm:p-4 border-t">
                                 <div className="flex w-full space-x-2">
                                     <textarea
-                                        placeholder="Digite sua pergunta..."
+                                        placeholder={connectionError ? "Configure a API key primeiro..." : "Digite sua pergunta..."}
                                         value={input}
                                         onChange={(e) => setInput(e.target.value)}
                                         onKeyPress={handleKeyPress}
                                         className="flex-1 p-2 border bg-background rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-xs sm:text-sm resize-none min-h-[2.5rem] max-h-20"
-                                        disabled={isLoading || !chat || isInitializing}
+                                        disabled={isLoading || !chat || isInitializing || connectionError}
                                         rows={1}
                                     />
                                     <Button 
                                         onClick={handleSendMessage} 
                                         size="icon" 
                                         className="flex-shrink-0 h-10 w-10" 
-                                        disabled={isLoading || !chat || isInitializing || !input.trim()}
+                                        disabled={!canSendMessage()}
                                     >
                                         {isLoading ? (
                                             <LoadingSpinner size="sm" />
@@ -231,7 +304,11 @@ const FloatingAIChat = () => {
             
             <Button
                 size="icon"
-                className="rounded-full w-12 h-12 sm:w-14 sm:h-14 fixed bottom-4 sm:bottom-6 right-2 sm:right-4 md:right-6 z-50 shadow-lg"
+                className={`rounded-full w-12 h-12 sm:w-14 sm:h-14 fixed bottom-4 sm:bottom-6 right-2 sm:right-4 md:right-6 z-50 shadow-lg ${
+                    connectionError 
+                        ? 'bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600' 
+                        : ''
+                }`}
                 onClick={() => setIsOpen(!isOpen)}
             >
                 {isOpen ? (
