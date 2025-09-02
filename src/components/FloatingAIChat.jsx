@@ -58,7 +58,7 @@ const AudioRecorder = ({ onAudioRecorded, isRecording, onToggleRecording, onTran
             };
             updateAudioLevel();
 
-            // Setup speech recognition
+            // Setup speech recognition for real-time transcription
             if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
                 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
                 recognitionRef.current = new SpeechRecognition();
@@ -66,14 +66,15 @@ const AudioRecorder = ({ onAudioRecorded, isRecording, onToggleRecording, onTran
                 recognitionRef.current.interimResults = true;
                 recognitionRef.current.lang = 'pt-BR';
 
+                let finalTranscript = '';
+
                 recognitionRef.current.onresult = (event) => {
-                    let finalTranscript = '';
                     let interimTranscript = '';
 
                     for (let i = event.resultIndex; i < event.results.length; i++) {
                         const transcript = event.results[i][0].transcript;
                         if (event.results[i].isFinal) {
-                            finalTranscript += transcript;
+                            finalTranscript += transcript + ' ';
                         } else {
                             interimTranscript += transcript;
                         }
@@ -87,17 +88,30 @@ const AudioRecorder = ({ onAudioRecorded, isRecording, onToggleRecording, onTran
                 recognitionRef.current.onerror = (event) => {
                     console.error('Speech recognition error:', event.error);
                     if (event.error === 'no-speech') {
-                        // Silently handle no speech detected
-                        return;
+                        return; // Silently handle no speech
                     }
-                    toast({
-                        title: "Erro na Transcrição",
-                        description: "Não foi possível transcrever o áudio. Continue falando.",
-                        variant: "destructive",
-                    });
+                    if (event.error !== 'aborted') {
+                        toast({
+                            title: "Erro na Transcrição",
+                            description: "Não foi possível transcrever o áudio. Continue falando.",
+                            variant: "destructive",
+                        });
+                    }
                 };
 
-                recognitionRef.current.start();
+                recognitionRef.current.onstart = () => {
+                    console.log('Speech recognition started');
+                };
+
+                recognitionRef.current.onend = () => {
+                    console.log('Speech recognition ended');
+                };
+
+                try {
+                    recognitionRef.current.start();
+                } catch (error) {
+                    console.error('Error starting speech recognition:', error);
+                }
             } else {
                 toast({
                     title: "Transcrição Não Suportada",
@@ -110,30 +124,36 @@ const AudioRecorder = ({ onAudioRecorded, isRecording, onToggleRecording, onTran
             const chunks = [];
 
             mediaRecorderRef.current.ondataavailable = (event) => {
-                chunks.push(event.data);
+                if (event.data.size > 0) {
+                    chunks.push(event.data);
+                }
             };
 
             mediaRecorderRef.current.onstop = () => {
                 const blob = new Blob(chunks, { type: 'audio/wav' });
                 const audioUrl = URL.createObjectURL(blob);
-                onAudioRecorded({ blob, url: audioUrl, transcription });
+                onAudioRecorded({ blob, url: audioUrl, transcription: transcription.trim() });
                 
                 // Cleanup
                 stream.getTracks().forEach(track => track.stop());
-                if (audioContextRef.current) {
+                if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
                     audioContextRef.current.close();
                 }
                 if (animationRef.current) {
                     cancelAnimationFrame(animationRef.current);
                 }
                 if (recognitionRef.current) {
-                    recognitionRef.current.stop();
+                    try {
+                        recognitionRef.current.stop();
+                    } catch (error) {
+                        console.log('Recognition already stopped');
+                    }
                 }
                 setAudioLevel(0);
                 setTranscription('');
             };
 
-            mediaRecorderRef.current.start();
+            mediaRecorderRef.current.start(100); // Collect data every 100ms
             onToggleRecording(true);
         } catch (error) {
             console.error('Erro ao acessar microfone:', error);
@@ -148,8 +168,15 @@ const AudioRecorder = ({ onAudioRecorded, isRecording, onToggleRecording, onTran
     const stopRecording = () => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
             mediaRecorderRef.current.stop();
-            onToggleRecording(false);
         }
+        if (recognitionRef.current) {
+            try {
+                recognitionRef.current.stop();
+            } catch (error) {
+                console.log('Recognition already stopped');
+            }
+        }
+        onToggleRecording(false);
     };
 
     const handleToggle = () => {
@@ -297,63 +324,58 @@ const FloatingAIChat = ({ baby, updateBabyData }) => {
     const [chat, setChat] = useState(null);
     const [model, setModel] = useState(null);
 
-    // Gerar contexto dinâmico do bebê
+    // Gerar contexto dinâmico do bebê de forma mais natural
     const generateBabyContext = () => {
         if (!baby) return "Nenhum bebê selecionado no momento.";
 
         const age = baby.birthDate ? 
             Math.floor((new Date() - new Date(baby.birthDate)) / (1000 * 60 * 60 * 24 * 30.44)) : 0;
 
-        let context = `CONTEXTO DO BEBÊ ATUAL:
+        let context = `INFORMAÇÕES DO BEBÊ (use apenas quando relevante para a conversa):
 Nome: ${baby.name}
 Idade: ${age} meses
-Data de Nascimento: ${baby.birthDate ? new Date(baby.birthDate).toLocaleDateString('pt-BR') : 'Não informado'}
-Peso Atual: ${baby.weight || 'Não informado'}
-Altura Atual: ${baby.height || 'Não informado'}
+Nascimento: ${baby.birthDate ? new Date(baby.birthDate).toLocaleDateString('pt-BR') : 'Não informado'}
+Peso: ${baby.weight || 'Não informado'}
+Altura: ${baby.height || 'Não informado'}`;
 
-HISTÓRICO MÉDICO:`;
-
-        // Eventos e medicamentos
+        // Adicionar informações médicas relevantes
         if (baby.events && baby.events.length > 0) {
-            context += `\nEventos/Medicamentos:`;
-            baby.events.forEach(event => {
-                context += `\n- ${event.name} (${event.type}): ${event.details || ''} - ${event.completed ? 'Concluído' : 'Pendente'}`;
-            });
+            const pendingEvents = baby.events.filter(e => !e.completed);
+            if (pendingEvents.length > 0) {
+                context += `\nEventos pendentes: ${pendingEvents.map(e => e.name).join(', ')}`;
+            }
         }
 
-        // Vacinas
         if (baby.vaccines && baby.vaccines.length > 0) {
-            context += `\nVacinas:`;
-            baby.vaccines.forEach(vaccine => {
-                context += `\n- ${vaccine.name}: ${vaccine.status} em ${vaccine.date}`;
-            });
+            const pendingVaccines = baby.vaccines.filter(v => v.status === 'pending');
+            if (pendingVaccines.length > 0) {
+                context += `\nVacinas pendentes: ${pendingVaccines.map(v => v.name).join(', ')}`;
+            }
         }
 
-        // Marcos de desenvolvimento
         if (baby.milestones && baby.milestones.length > 0) {
-            context += `\nMarcos de Desenvolvimento:`;
-            baby.milestones.forEach(milestone => {
-                context += `\n- ${milestone.milestone}: ${milestone.achieved ? 'Conquistado' : 'Pendente'} em ${new Date(milestone.date).toLocaleDateString('pt-BR')}`;
-            });
-        }
-
-        // Família
-        if (baby.family && baby.family.length > 0) {
-            context += `\nFamília:`;
-            baby.family.forEach(member => {
-                context += `\n- ${member.name} (${member.relationship})`;
-            });
-        }
-
-        // Documentos
-        if (baby.documents && baby.documents.length > 0) {
-            context += `\nDocumentos Médicos:`;
-            baby.documents.forEach(doc => {
-                context += `\n- ${doc.title} (${doc.type}): ${doc.description || ''}`;
-            });
+            const recentMilestones = baby.milestones.filter(m => m.achieved).slice(-3);
+            if (recentMilestones.length > 0) {
+                context += `\nÚltimos marcos conquistados: ${recentMilestones.map(m => m.milestone).join(', ')}`;
+            }
         }
 
         return context;
+    };
+
+    // Gerar saudação personalizada
+    const generatePersonalizedGreeting = () => {
+        if (!baby) return "Oi! Sou a Angel IA 👋";
+
+        const greetings = [
+            `Oi! Como está o ${baby.name} hoje? 😊`,
+            `Olá! Tudo bem com vocês? 👋`,
+            `Oi! Como posso ajudar com o ${baby.name}? 💙`,
+            `Olá! Espero que estejam bem! 😊`,
+            `Oi! Pronta para ajudar vocês! ✨`
+        ];
+
+        return greetings[Math.floor(Math.random() * greetings.length)];
     };
 
     // Sincronização com configurações
@@ -368,14 +390,14 @@ HISTÓRICO MÉDICO:`;
                     
                     const genAI = new GoogleGenerativeAI(settings.geminiApiKey.trim());
                     
-                    // Usar Gemini 2.0 Flash - modelo mais recente e multimodal completo
+                    // Usar Gemini 2.0 Flash
                     const newModel = genAI.getGenerativeModel({ 
                         model: "gemini-2.0-flash-exp",
                         generationConfig: {
-                            maxOutputTokens: 2048,
-                            temperature: 0.7,
-                            topP: 0.95,
-                            topK: 40,
+                            maxOutputTokens: 1024,
+                            temperature: 0.8,
+                            topP: 0.9,
+                            topK: 30,
                         },
                         safetySettings: [
                             {
@@ -398,28 +420,35 @@ HISTÓRICO MÉDICO:`;
                     });
                     
                     // Teste de conexão
-                    const testResult = await newModel.generateContent("Responda apenas 'OK' se você está funcionando.");
+                    const testResult = await newModel.generateContent("Responda apenas 'OK'");
                     const testResponse = await testResult.response;
                     const testText = testResponse.text();
                     
                     if (testText) {
                         setModel(newModel);
                         
-                        // Inicializar chat com contexto do bebê
+                        // Inicializar chat com personalidade natural
                         const babyContext = generateBabyContext();
-                        const systemPrompt = `Você é Angel IA, assistente especializada em cuidados infantis. Você tem acesso aos dados completos do bebê e deve usar essas informações para dar conselhos personalizados e relevantes.
+                        const systemPrompt = `Você é Angel IA, uma assistente carinhosa e natural que faz parte da família. 
 
 ${babyContext}
 
-INSTRUÇÕES:
-- Use sempre os dados específicos do bebê nas suas respostas
-- Seja carinhosa, empática e profissional
-- Dê conselhos baseados na idade e histórico do bebê
-- Sugira próximos passos baseados no desenvolvimento atual
-- Se perguntarem sobre algo específico do bebê, use os dados fornecidos
-- Mantenha o foco em cuidados infantis, saúde e desenvolvimento
-- Você pode processar áudio, imagens, documentos e vídeos
-- Sempre analise o conteúdo multimodal no contexto dos dados do bebê`;
+PERSONALIDADE:
+- Converse de forma natural, como uma amiga próxima da família
+- Use frases curtas e simples, como humanos fazem
+- Seja carinhosa, empática e calorosa
+- Não seja formal demais, seja espontânea
+- Use emojis ocasionalmente para ser mais humana
+- Divida respostas longas em várias mensagens curtas
+- Só mencione dados específicos do bebê quando for relevante para a conversa
+- Comece conversas de forma natural, não despejando informações
+
+ESTILO DE CONVERSA:
+- Frases curtas (máximo 2 linhas por mensagem)
+- Tom conversacional e amigável
+- Perguntas naturais para manter o diálogo
+- Respostas divididas em múltiplas mensagens quando necessário
+- Foco no que o usuário está perguntando especificamente`;
 
                         const newChat = newModel.startChat({
                             history: [
@@ -429,22 +458,20 @@ INSTRUÇÕES:
                                 },
                                 {
                                     role: "model", 
-                                    parts: [{ text: "Entendi! Tenho acesso a todos os dados do bebê e estou pronta para ajudar com conselhos personalizados sobre cuidados infantis. Posso processar texto, áudio, imagens, documentos e vídeos!" }]
+                                    parts: [{ text: "Entendi! Vou conversar de forma natural e carinhosa, como uma amiga da família. Pronta para ajudar! 😊" }]
                                 }
                             ],
                             generationConfig: {
-                                maxOutputTokens: 2048,
-                                temperature: 0.7,
-                                topP: 0.95,
-                                topK: 40,
+                                maxOutputTokens: 1024,
+                                temperature: 0.8,
+                                topP: 0.9,
+                                topK: 30,
                             },
                         });
                         setChat(newChat);
                         
                         if (messages.length === 0) {
-                            const welcomeMessage = baby ? 
-                                `Olá! Sou a Angel IA 2.0 e já tenho acesso a todos os dados do ${baby.name}. Posso ajudar com texto, áudio, imagens, documentos e até vídeos! Como posso ajudar com o desenvolvimento, saúde ou rotina do seu bebê hoje? 👶✨🎥` :
-                                "Olá! Sou a Angel IA 2.0, sua assistente especializada em cuidados infantis. Selecione um bebê para que eu possa dar conselhos personalizados! 👶✨";
+                            const welcomeMessage = generatePersonalizedGreeting();
                             
                             setMessages([{
                                 id: 1,
@@ -460,32 +487,31 @@ INSTRUÇÕES:
                     setChat(null);
                     setModel(null);
                     
-                    let errorMessage = "❌ Erro de conexão: ";
+                    let errorMessage = "❌ Ops, algo deu errado...";
                     if (error.message?.includes('API_KEY_INVALID') || error.message?.includes('Invalid API key')) {
-                        errorMessage += "Chave da API inválida. Verifique se sua chave do Google Gemini está correta nas Configurações.";
+                        errorMessage = "🔑 Preciso que você configure sua chave da API nas Configurações primeiro.";
                     } else if (error.message?.includes('not found') || error.message?.includes('model')) {
-                        errorMessage += "Modelo não encontrado. Tentando usar Gemini 1.5 Flash como alternativa...";
+                        errorMessage = "🤖 Tentando usar um modelo alternativo...";
                         // Fallback para modelo anterior
                         try {
+                            const genAI = new GoogleGenerativeAI(settings.geminiApiKey.trim());
                             const fallbackModel = genAI.getGenerativeModel({ 
                                 model: "gemini-1.5-flash",
                                 generationConfig: {
-                                    maxOutputTokens: 2048,
-                                    temperature: 0.7,
+                                    maxOutputTokens: 1024,
+                                    temperature: 0.8,
                                 },
                             });
                             setModel(fallbackModel);
                             setConnectionError(false);
                             toast({
-                                title: "⚠️ Usando Modelo Alternativo",
-                                description: "Gemini 2.0 não disponível. Usando 1.5 Flash.",
+                                title: "⚠️ Modelo Alternativo",
+                                description: "Usando Gemini 1.5 Flash.",
                             });
                             return;
                         } catch (fallbackError) {
-                            errorMessage += " Modelo alternativo também falhou.";
+                            errorMessage = "❌ Não consegui conectar. Verifique sua chave da API.";
                         }
-                    } else {
-                        errorMessage += "Verifique sua conexão e chave da API.";
                     }
                     
                     if (messages.length === 0) {
@@ -504,7 +530,7 @@ INSTRUÇÕES:
                     setMessages([{
                         id: 1,
                         role: 'model',
-                        parts: "🔑 Para começar a conversar, você precisa configurar sua chave da API do Google Gemini nas Configurações. \n\n📝 Como obter:\n1. Acesse https://aistudio.google.com/app/apikey\n2. Crie uma nova chave API\n3. Cole a chave nas Configurações do app"
+                        parts: "🔑 Oi! Preciso que você configure sua chave da API do Gemini nas Configurações para podermos conversar."
                     }]);
                 }
             }
@@ -513,7 +539,7 @@ INSTRUÇÕES:
         };
 
         initializeChat();
-    }, [settings?.geminiApiKey, baby]); // Reinicializa quando o bebê muda também
+    }, [settings?.geminiApiKey, baby]);
 
     const scrollToBottom = () => {
         chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -534,9 +560,9 @@ INSTRUÇÕES:
 
             const documentData = {
                 id: Date.now(),
-                title: `Documento analisado pela IA - ${file.name}`,
+                title: `Análise da Angel IA - ${file.name}`,
                 type: file.type?.startsWith('image/') ? 'exam' : 'medical',
-                description: `Análise da Angel IA: ${aiResponse.substring(0, 200)}...`,
+                description: `Análise: ${aiResponse.substring(0, 200)}...`,
                 date: new Date().toISOString().split('T')[0],
                 files: [{
                     id: Date.now(),
@@ -549,7 +575,6 @@ INSTRUÇÕES:
                 aiAnalysis: aiResponse
             };
 
-            // Salvar no contexto do bebê atual
             const updatedBaby = {
                 ...baby,
                 documents: [...(baby.documents || []), documentData]
@@ -559,17 +584,12 @@ INSTRUÇÕES:
 
             toast({
                 title: "📄 Documento Salvo!",
-                description: `${file.name} foi analisado e salvo nos documentos de ${baby.name}.`,
+                description: `Análise salva nos documentos de ${baby.name}.`,
             });
 
             return documentData;
         } catch (error) {
             console.error('Erro ao salvar documento:', error);
-            toast({
-                title: "Erro ao Salvar",
-                description: "Não foi possível salvar o documento. Tente novamente.",
-                variant: "destructive",
-            });
         }
     };
 
@@ -593,6 +613,33 @@ INSTRUÇÕES:
         setInput(transcription);
     };
 
+    // Função para dividir respostas longas em mensagens menores
+    const splitLongResponse = (text) => {
+        const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+        const messages = [];
+        let currentMessage = '';
+
+        for (const sentence of sentences) {
+            const trimmedSentence = sentence.trim();
+            if (!trimmedSentence) continue;
+
+            if (currentMessage.length + trimmedSentence.length > 100) {
+                if (currentMessage) {
+                    messages.push(currentMessage.trim() + '.');
+                    currentMessage = '';
+                }
+            }
+            
+            currentMessage += (currentMessage ? ' ' : '') + trimmedSentence;
+        }
+
+        if (currentMessage) {
+            messages.push(currentMessage.trim() + (currentMessage.includes('.') ? '' : '.'));
+        }
+
+        return messages.length > 0 ? messages : [text];
+    };
+
     const handleSendMessage = async () => {
         if ((input.trim() === '' && !attachedAudio && attachedFiles.length === 0) || isLoading || !model || connectionError) return;
 
@@ -612,16 +659,15 @@ INSTRUÇÕES:
         setIsLoading(true);
 
         try {
-            // Incluir contexto atualizado do bebê em cada mensagem
+            // Contexto mais natural
             const currentBabyContext = generateBabyContext();
-            let parts = [`CONTEXTO ATUAL DO BEBÊ:
-${currentBabyContext}
+            let parts = [`${messageContent}
 
-PERGUNTA/SOLICITAÇÃO DO USUÁRIO: ${messageContent}
+CONTEXTO (use apenas se relevante): ${currentBabyContext}
 
-Como Angel IA, responda usando os dados específicos do bebê acima:`];
+Responda de forma natural e conversacional. Se a resposta for longa, eu vou dividir em várias mensagens curtas.`];
             
-            // Processar arquivos anexados (incluindo vídeos)
+            // Processar arquivos anexados
             if (attachedFiles.length > 0) {
                 for (const file of attachedFiles) {
                     if (file.type?.startsWith('image/') || 
@@ -633,13 +679,13 @@ Como Angel IA, responda usando os dados específicos do bebê acima:`];
                         parts.push(generativePart);
                         
                         if (file.type?.startsWith('image/')) {
-                            parts.push("Esta é uma imagem relacionada ao cuidado do bebê. Analise considerando os dados específicos do bebê fornecidos.");
+                            parts.push("Analise esta imagem relacionada ao bebê.");
                         } else if (file.type === 'application/pdf') {
-                            parts.push("Este é um documento PDF relacionado ao cuidado do bebê. Analise considerando os dados específicos do bebê fornecidos.");
+                            parts.push("Analise este documento.");
                         } else if (file.type?.startsWith('video/')) {
-                            parts.push("Este é um vídeo relacionado ao cuidado do bebê. Analise o conteúdo visual considerando os dados específicos do bebê fornecidos.");
+                            parts.push("Analise este vídeo do bebê.");
                         } else if (file.type?.startsWith('audio/')) {
-                            parts.push("Este é um arquivo de áudio relacionado ao cuidado do bebê. Analise o conteúdo considerando os dados específicos do bebê fornecidos.");
+                            parts.push("Analise este áudio.");
                         }
                     }
                 }
@@ -647,7 +693,11 @@ Como Angel IA, responda usando os dados específicos do bebê acima:`];
 
             // Processar áudio transcrito
             if (attachedAudio && attachedAudio.transcription) {
-                parts[0] += `\n\nTRANSCRIÇÃO DO ÁUDIO: "${attachedAudio.transcription}"`;
+                parts[0] = `${attachedAudio.transcription}
+
+CONTEXTO (use apenas se relevante): ${currentBabyContext}
+
+Responda de forma natural e conversacional.`;
             }
 
             const result = await model.generateContent(parts);
@@ -655,10 +705,22 @@ Como Angel IA, responda usando os dados específicos do bebê acima:`];
             const text = response.text();
             
             if (text && text.trim() !== '') {
-                const aiMessage = { id: Date.now() + 1, role: 'model', parts: text };
-                setMessages(prev => [...prev, aiMessage]);
+                // Dividir resposta longa em mensagens menores
+                const messageParts = splitLongResponse(text.trim());
+                
+                // Enviar cada parte como uma mensagem separada com delay
+                for (let i = 0; i < messageParts.length; i++) {
+                    setTimeout(() => {
+                        const aiMessage = { 
+                            id: Date.now() + i + 1, 
+                            role: 'model', 
+                            parts: messageParts[i] 
+                        };
+                        setMessages(prev => [...prev, aiMessage]);
+                    }, i * 1000); // 1 segundo de delay entre mensagens
+                }
 
-                // Salvar documentos analisados no banco de dados
+                // Salvar documentos analisados
                 if (attachedFiles.length > 0) {
                     for (const file of attachedFiles) {
                         await saveDocumentToDatabase(file, text);
@@ -668,25 +730,19 @@ Como Angel IA, responda usando os dados específicos do bebê acima:`];
                 throw new Error('Resposta vazia da API');
             }
         } catch (error) {
-            console.error("Erro ao enviar mensagem para o Gemini:", error);
+            console.error("Erro ao enviar mensagem:", error);
             
-            let errorMessage = "Desculpe, ocorreu um erro ao processar sua solicitação. ";
+            let errorMessage = "Ops, algo deu errado... 😅";
             
-            if (error.message?.includes('API_KEY_INVALID') || error.message?.includes('Invalid API key')) {
-                errorMessage = "🔑 Chave da API inválida. Verifique sua chave do Gemini nas Configurações.";
+            if (error.message?.includes('API_KEY_INVALID')) {
+                errorMessage = "🔑 Sua chave da API não está funcionando. Pode verificar nas Configurações?";
                 setConnectionError(true);
-                setChat(null);
-                setModel(null);
-            } else if (error.message?.includes('QUOTA_EXCEEDED') || error.message?.includes('quota')) {
-                errorMessage = "📊 Cota da API excedida. Tente novamente mais tarde ou verifique seu plano do Google AI.";
-            } else if (error.message?.includes('BLOCKED') || error.message?.includes('safety')) {
-                errorMessage = "🚫 Conteúdo bloqueado por segurança. Tente reformular sua pergunta de forma mais específica sobre cuidados infantis.";
-            } else if (error.message?.includes('NETWORK') || error.message?.includes('network')) {
-                errorMessage = "🌐 Erro de conexão. Verifique sua internet e tente novamente.";
-            } else if (error.message?.includes('model') || error.message?.includes('not found')) {
-                errorMessage = "🤖 Modelo não disponível. Tente novamente em alguns instantes.";
-            } else {
-                errorMessage += "Tente novamente em alguns instantes.";
+            } else if (error.message?.includes('QUOTA_EXCEEDED')) {
+                errorMessage = "📊 Você atingiu o limite da API hoje. Tente novamente amanhã!";
+            } else if (error.message?.includes('BLOCKED')) {
+                errorMessage = "🚫 Não consegui processar isso. Pode tentar de outra forma?";
+            } else if (error.message?.includes('NETWORK')) {
+                errorMessage = "🌐 Problema de conexão. Sua internet está ok?";
             }
             
             const errorResponse = { 
@@ -749,11 +805,11 @@ Como Angel IA, responda usando os dados específicos do bebê acima:`];
                                         <Bot className="w-4 h-4 sm:w-6 sm:h-6 text-white" />
                                     </div>
                                     <div>
-                                        <h3 className="font-semibold text-sm sm:text-base">Angel IA 2.0</h3>
+                                        <h3 className="font-semibold text-sm sm:text-base">Angel IA</h3>
                                         <p className="text-xs text-muted-foreground">
                                             {isInitializing ? 'Inicializando...' : 
                                              connectionError ? 'Erro de conexão' : 
-                                             baby ? `Cuidando de ${baby.name}` : 'Aguardando bebê'}
+                                             baby ? `Cuidando de ${baby.name}` : 'Pronta para ajudar'}
                                         </p>
                                     </div>
                                 </div>
@@ -864,21 +920,28 @@ Como Angel IA, responda usando os dados específicos do bebê acima:`];
                                         <FileUpload
                                             onFileSelect={handleFileSelect}
                                             acceptedTypes="image/*,video/*,audio/*,.pdf,.doc,.docx"
-                                            maxSize={50 * 1024 * 1024} // 50MB para vídeos
+                                            maxSize={50 * 1024 * 1024}
                                             multiple={true}
-                                            placeholder="Envie imagens, vídeos, áudios, exames ou documentos"
+                                            placeholder="Envie imagens, vídeos, áudios ou documentos"
                                             className="text-xs"
                                         />
                                     </div>
                                 )}
 
-                                {/* Indicador de transcrição */}
+                                {/* Indicador de transcrição em tempo real */}
                                 {isRecording && (
-                                    <div className="w-full p-2 bg-red-50 border border-red-200 rounded-lg">
-                                        <div className="flex items-center gap-2 text-red-600">
-                                            <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                                            <span className="text-xs font-medium">Gravando e transcrevendo...</span>
+                                    <div className="w-full p-3 bg-gradient-to-r from-red-50 to-pink-50 border-2 border-red-200 rounded-xl">
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                                                <span className="text-sm font-medium text-red-700">Gravando e transcrevendo...</span>
+                                            </div>
                                         </div>
+                                        {input && (
+                                            <div className="mt-2 p-2 bg-white rounded-lg border border-red-100">
+                                                <p className="text-sm text-gray-700">{input}</p>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
 
@@ -896,13 +959,13 @@ Como Angel IA, responda usando os dados específicos do bebê acima:`];
                                             size="icon"
                                             onClick={() => setShowFileUpload(!showFileUpload)}
                                             className={showFileUpload ? 'bg-primary text-primary-foreground' : ''}
-                                            title="Anexar arquivos (imagens, vídeos, áudios, documentos)"
+                                            title="Anexar arquivos"
                                         >
                                             <Paperclip className="w-4 h-4" />
                                         </Button>
                                     </div>
                                     <textarea
-                                        placeholder={connectionError ? "Configure a API key primeiro..." : isRecording ? "Falando..." : "Digite, grave áudio ou envie arquivos..."}
+                                        placeholder={connectionError ? "Configure a API key primeiro..." : isRecording ? "Falando..." : "Digite ou grave sua mensagem..."}
                                         value={input}
                                         onChange={(e) => setInput(e.target.value)}
                                         onKeyPress={handleKeyPress}
