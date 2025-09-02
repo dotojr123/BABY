@@ -255,12 +255,15 @@ const AudioPlayer = ({ audioUrl, onRemove }) => {
 const DocumentPreview = ({ file, onRemove }) => {
     const isImage = file.type?.startsWith('image/');
     const isPdf = file.type === 'application/pdf';
+    const isVideo = file.type?.startsWith('video/');
 
     return (
         <div className="flex items-center gap-2 p-2 bg-green-50 rounded-lg border border-green-200">
             <div className="w-8 h-8 bg-green-100 rounded flex items-center justify-center flex-shrink-0">
                 {isImage ? (
                     <ImageIcon className="w-4 h-4 text-green-600" />
+                ) : isVideo ? (
+                    <Play className="w-4 h-4 text-green-600" />
                 ) : (
                     <FileText className="w-4 h-4 text-green-600" />
                 )}
@@ -268,7 +271,7 @@ const DocumentPreview = ({ file, onRemove }) => {
             <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-gray-800 truncate">{file.name}</p>
                 <p className="text-xs text-gray-500">
-                    {isImage ? 'Imagem' : isPdf ? 'PDF' : 'Documento'} • {(file.size / 1024).toFixed(1)} KB
+                    {isImage ? 'Imagem' : isVideo ? 'Vídeo' : isPdf ? 'PDF' : 'Documento'} • {(file.size / 1024).toFixed(1)} KB
                 </p>
             </div>
             <Button variant="ghost" size="icon" onClick={onRemove} className="w-8 h-8 text-red-500 flex-shrink-0">
@@ -365,13 +368,33 @@ HISTÓRICO MÉDICO:`;
                     
                     const genAI = new GoogleGenerativeAI(settings.geminiApiKey.trim());
                     
-                    // Usar modelo multimodal
+                    // Usar Gemini 2.0 Flash - modelo mais recente e multimodal completo
                     const newModel = genAI.getGenerativeModel({ 
-                        model: "gemini-2.5-flash",
+                        model: "gemini-2.0-flash-exp",
                         generationConfig: {
-                            maxOutputTokens: 1500,
+                            maxOutputTokens: 2048,
                             temperature: 0.7,
+                            topP: 0.95,
+                            topK: 40,
                         },
+                        safetySettings: [
+                            {
+                                category: "HARM_CATEGORY_HARASSMENT",
+                                threshold: "BLOCK_MEDIUM_AND_ABOVE",
+                            },
+                            {
+                                category: "HARM_CATEGORY_HATE_SPEECH",
+                                threshold: "BLOCK_MEDIUM_AND_ABOVE",
+                            },
+                            {
+                                category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                                threshold: "BLOCK_MEDIUM_AND_ABOVE",
+                            },
+                            {
+                                category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+                                threshold: "BLOCK_MEDIUM_AND_ABOVE",
+                            },
+                        ],
                     });
                     
                     // Teste de conexão
@@ -394,7 +417,9 @@ INSTRUÇÕES:
 - Dê conselhos baseados na idade e histórico do bebê
 - Sugira próximos passos baseados no desenvolvimento atual
 - Se perguntarem sobre algo específico do bebê, use os dados fornecidos
-- Mantenha o foco em cuidados infantis, saúde e desenvolvimento`;
+- Mantenha o foco em cuidados infantis, saúde e desenvolvimento
+- Você pode processar áudio, imagens, documentos e vídeos
+- Sempre analise o conteúdo multimodal no contexto dos dados do bebê`;
 
                         const newChat = newModel.startChat({
                             history: [
@@ -404,20 +429,22 @@ INSTRUÇÕES:
                                 },
                                 {
                                     role: "model", 
-                                    parts: [{ text: "Entendi! Tenho acesso a todos os dados do bebê e estou pronta para ajudar com conselhos personalizados sobre cuidados infantis." }]
+                                    parts: [{ text: "Entendi! Tenho acesso a todos os dados do bebê e estou pronta para ajudar com conselhos personalizados sobre cuidados infantis. Posso processar texto, áudio, imagens, documentos e vídeos!" }]
                                 }
                             ],
                             generationConfig: {
-                                maxOutputTokens: 1500,
+                                maxOutputTokens: 2048,
                                 temperature: 0.7,
+                                topP: 0.95,
+                                topK: 40,
                             },
                         });
                         setChat(newChat);
                         
                         if (messages.length === 0) {
                             const welcomeMessage = baby ? 
-                                `Olá! Sou a Angel IA e já tenho acesso a todos os dados do ${baby.name}. Posso ajudar com texto, áudio e documentos. Como posso ajudar com o desenvolvimento, saúde ou rotina do seu bebê hoje? 👶✨` :
-                                "Olá! Sou a Angel IA, sua assistente especializada em cuidados infantis. Selecione um bebê para que eu possa dar conselhos personalizados! 👶✨";
+                                `Olá! Sou a Angel IA 2.0 e já tenho acesso a todos os dados do ${baby.name}. Posso ajudar com texto, áudio, imagens, documentos e até vídeos! Como posso ajudar com o desenvolvimento, saúde ou rotina do seu bebê hoje? 👶✨🎥` :
+                                "Olá! Sou a Angel IA 2.0, sua assistente especializada em cuidados infantis. Selecione um bebê para que eu possa dar conselhos personalizados! 👶✨";
                             
                             setMessages([{
                                 id: 1,
@@ -433,11 +460,39 @@ INSTRUÇÕES:
                     setChat(null);
                     setModel(null);
                     
+                    let errorMessage = "❌ Erro de conexão: ";
+                    if (error.message?.includes('API_KEY_INVALID') || error.message?.includes('Invalid API key')) {
+                        errorMessage += "Chave da API inválida. Verifique se sua chave do Google Gemini está correta nas Configurações.";
+                    } else if (error.message?.includes('not found') || error.message?.includes('model')) {
+                        errorMessage += "Modelo não encontrado. Tentando usar Gemini 1.5 Flash como alternativa...";
+                        // Fallback para modelo anterior
+                        try {
+                            const fallbackModel = genAI.getGenerativeModel({ 
+                                model: "gemini-1.5-flash",
+                                generationConfig: {
+                                    maxOutputTokens: 2048,
+                                    temperature: 0.7,
+                                },
+                            });
+                            setModel(fallbackModel);
+                            setConnectionError(false);
+                            toast({
+                                title: "⚠️ Usando Modelo Alternativo",
+                                description: "Gemini 2.0 não disponível. Usando 1.5 Flash.",
+                            });
+                            return;
+                        } catch (fallbackError) {
+                            errorMessage += " Modelo alternativo também falhou.";
+                        }
+                    } else {
+                        errorMessage += "Verifique sua conexão e chave da API.";
+                    }
+                    
                     if (messages.length === 0) {
                         setMessages([{
                             id: 1,
                             role: 'model',
-                            parts: "❌ Erro de conexão: Verifique se sua chave da API do Google Gemini está correta nas Configurações. A chave deve começar com 'AIza...' e ter acesso à API Gemini."
+                            parts: errorMessage
                         }]);
                     }
                 }
@@ -566,10 +621,14 @@ PERGUNTA/SOLICITAÇÃO DO USUÁRIO: ${messageContent}
 
 Como Angel IA, responda usando os dados específicos do bebê acima:`];
             
-            // Processar arquivos anexados
+            // Processar arquivos anexados (incluindo vídeos)
             if (attachedFiles.length > 0) {
                 for (const file of attachedFiles) {
-                    if (file.type?.startsWith('image/') || file.type === 'application/pdf') {
+                    if (file.type?.startsWith('image/') || 
+                        file.type === 'application/pdf' || 
+                        file.type?.startsWith('video/') ||
+                        file.type?.startsWith('audio/')) {
+                        
                         const generativePart = await convertFileToGenerativePart(file);
                         parts.push(generativePart);
                         
@@ -577,6 +636,10 @@ Como Angel IA, responda usando os dados específicos do bebê acima:`];
                             parts.push("Esta é uma imagem relacionada ao cuidado do bebê. Analise considerando os dados específicos do bebê fornecidos.");
                         } else if (file.type === 'application/pdf') {
                             parts.push("Este é um documento PDF relacionado ao cuidado do bebê. Analise considerando os dados específicos do bebê fornecidos.");
+                        } else if (file.type?.startsWith('video/')) {
+                            parts.push("Este é um vídeo relacionado ao cuidado do bebê. Analise o conteúdo visual considerando os dados específicos do bebê fornecidos.");
+                        } else if (file.type?.startsWith('audio/')) {
+                            parts.push("Este é um arquivo de áudio relacionado ao cuidado do bebê. Analise o conteúdo considerando os dados específicos do bebê fornecidos.");
                         }
                     }
                 }
@@ -609,17 +672,19 @@ Como Angel IA, responda usando os dados específicos do bebê acima:`];
             
             let errorMessage = "Desculpe, ocorreu um erro ao processar sua solicitação. ";
             
-            if (error.message?.includes('API_KEY_INVALID')) {
+            if (error.message?.includes('API_KEY_INVALID') || error.message?.includes('Invalid API key')) {
                 errorMessage = "🔑 Chave da API inválida. Verifique sua chave do Gemini nas Configurações.";
                 setConnectionError(true);
                 setChat(null);
                 setModel(null);
-            } else if (error.message?.includes('QUOTA_EXCEEDED')) {
+            } else if (error.message?.includes('QUOTA_EXCEEDED') || error.message?.includes('quota')) {
                 errorMessage = "📊 Cota da API excedida. Tente novamente mais tarde ou verifique seu plano do Google AI.";
-            } else if (error.message?.includes('BLOCKED')) {
-                errorMessage = "🚫 Conteúdo bloqueado. Tente reformular sua pergunta de forma mais específica sobre cuidados infantis.";
-            } else if (error.message?.includes('NETWORK')) {
+            } else if (error.message?.includes('BLOCKED') || error.message?.includes('safety')) {
+                errorMessage = "🚫 Conteúdo bloqueado por segurança. Tente reformular sua pergunta de forma mais específica sobre cuidados infantis.";
+            } else if (error.message?.includes('NETWORK') || error.message?.includes('network')) {
                 errorMessage = "🌐 Erro de conexão. Verifique sua internet e tente novamente.";
+            } else if (error.message?.includes('model') || error.message?.includes('not found')) {
+                errorMessage = "🤖 Modelo não disponível. Tente novamente em alguns instantes.";
             } else {
                 errorMessage += "Tente novamente em alguns instantes.";
             }
@@ -684,7 +749,7 @@ Como Angel IA, responda usando os dados específicos do bebê acima:`];
                                         <Bot className="w-4 h-4 sm:w-6 sm:h-6 text-white" />
                                     </div>
                                     <div>
-                                        <h3 className="font-semibold text-sm sm:text-base">Angel IA</h3>
+                                        <h3 className="font-semibold text-sm sm:text-base">Angel IA 2.0</h3>
                                         <p className="text-xs text-muted-foreground">
                                             {isInitializing ? 'Inicializando...' : 
                                              connectionError ? 'Erro de conexão' : 
@@ -749,6 +814,8 @@ Como Angel IA, responda usando os dados específicos do bebê acima:`];
                                                                 <div key={index} className="text-xs text-gray-500 bg-green-50 p-2 rounded flex items-center gap-2">
                                                                     {file.type?.startsWith('image/') ? (
                                                                         <ImageIcon className="w-3 h-3" />
+                                                                    ) : file.type?.startsWith('video/') ? (
+                                                                        <Play className="w-3 h-3" />
                                                                     ) : (
                                                                         <FileText className="w-3 h-3" />
                                                                     )}
@@ -796,10 +863,10 @@ Como Angel IA, responda usando os dados específicos do bebê acima:`];
                                     <div className="w-full">
                                         <FileUpload
                                             onFileSelect={handleFileSelect}
-                                            acceptedTypes="image/*,.pdf,.doc,.docx"
-                                            maxSize={10 * 1024 * 1024} // 10MB
+                                            acceptedTypes="image/*,video/*,audio/*,.pdf,.doc,.docx"
+                                            maxSize={50 * 1024 * 1024} // 50MB para vídeos
                                             multiple={true}
-                                            placeholder="Envie exames, documentos ou imagens"
+                                            placeholder="Envie imagens, vídeos, áudios, exames ou documentos"
                                             className="text-xs"
                                         />
                                     </div>
@@ -829,12 +896,13 @@ Como Angel IA, responda usando os dados específicos do bebê acima:`];
                                             size="icon"
                                             onClick={() => setShowFileUpload(!showFileUpload)}
                                             className={showFileUpload ? 'bg-primary text-primary-foreground' : ''}
+                                            title="Anexar arquivos (imagens, vídeos, áudios, documentos)"
                                         >
                                             <Paperclip className="w-4 h-4" />
                                         </Button>
                                     </div>
                                     <textarea
-                                        placeholder={connectionError ? "Configure a API key primeiro..." : isRecording ? "Falando..." : "Digite, grave áudio ou envie documentos..."}
+                                        placeholder={connectionError ? "Configure a API key primeiro..." : isRecording ? "Falando..." : "Digite, grave áudio ou envie arquivos..."}
                                         value={input}
                                         onChange={(e) => setInput(e.target.value)}
                                         onKeyPress={handleKeyPress}
