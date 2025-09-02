@@ -222,7 +222,7 @@ function App() {
           </div>
         </div>
         <Toaster />
-        <FloatingAIChat />
+        <FloatingAIChat baby={selectedBaby} updateBabyData={updateBabyData} />
         {selectedBaby && (
           <>
             <EditBabyDialog
