@@ -367,7 +367,7 @@ HISTÓRICO MÉDICO:`;
                     
                     // Usar modelo multimodal
                     const newModel = genAI.getGenerativeModel({ 
-                        model: "gemini-1.5-flash",
+                        model: "gemini-2.5-flash",
                         generationConfig: {
                             maxOutputTokens: 1500,
                             temperature: 0.7,
