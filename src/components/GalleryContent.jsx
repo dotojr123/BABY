@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Camera, Plus, Image as ImageIcon, Trash2, Heart, Download } from 'lucide-react';
+import { Camera, Plus, Image as ImageIcon, Trash2, Heart, Download, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/componen
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/use-toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
+import FileUpload from '@/components/FileUpload';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,7 +23,7 @@ import {
 
 const GalleryContent = ({ baby, updateBabyData }) => {
     const [showForm, setShowForm] = useState(false);
-    const [newPhoto, setNewPhoto] = useState({ url: '', description: '' });
+    const [newPhoto, setNewPhoto] = useState({ url: '', description: '', uploadMethod: 'url' });
     const [photoToDelete, setPhotoToDelete] = useState(null);
     const [loadingImages, setLoadingImages] = useState(new Set());
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -52,11 +53,19 @@ const GalleryContent = ({ baby, updateBabyData }) => {
         });
     };
 
+    const handleFileSelect = (file) => {
+        setNewPhoto(prev => ({
+            ...prev,
+            url: file.url,
+            uploadMethod: 'upload'
+        }));
+    };
+
     const handleAddPhoto = async () => {
         if (!newPhoto.url) {
             toast({
                 title: "Erro",
-                description: "Por favor, insira a URL da imagem.",
+                description: "Por favor, adicione uma imagem (URL ou upload).",
                 variant: "destructive",
             });
             return;
@@ -72,6 +81,7 @@ const GalleryContent = ({ baby, updateBabyData }) => {
                 url: newPhoto.url,
                 description: newPhoto.description || 'Foto do bebê',
                 date: new Date().toISOString(),
+                uploadMethod: newPhoto.uploadMethod,
             };
 
             const updatedBaby = {
@@ -84,7 +94,7 @@ const GalleryContent = ({ baby, updateBabyData }) => {
                 title: "✨ Foto Adicionada!",
                 description: "Sua foto foi adicionada à galeria com sucesso.",
             });
-            setNewPhoto({ url: '', description: '' });
+            setNewPhoto({ url: '', description: '', uploadMethod: 'url' });
             setShowForm(false);
         } catch (error) {
             toast({
@@ -149,19 +159,65 @@ const GalleryContent = ({ baby, updateBabyData }) => {
                             initial={{ opacity: 0, height: 0 }} 
                             animate={{ opacity: 1, height: 'auto' }}
                         >
-                            <div className="grid grid-cols-1 gap-4">
+                            <div className="space-y-4">
+                                {/* Método de upload */}
                                 <div>
-                                    <Label htmlFor="photoUrl" className="text-gray-700 font-medium">URL da Imagem</Label>
-                                    <Input 
-                                        id="photoUrl" 
-                                        type="text" 
-                                        placeholder="https://exemplo.com/foto.jpg" 
-                                        value={newPhoto.url} 
-                                        onChange={e => setNewPhoto({ ...newPhoto, url: e.target.value })} 
-                                        className="mt-2 border-2 border-blue-100 focus:border-blue-400 rounded-xl" 
-                                        disabled={isSubmitting}
-                                    />
+                                    <Label className="text-gray-700 font-medium">Como deseja adicionar a foto?</Label>
+                                    <div className="flex gap-4 mt-2">
+                                        <Button
+                                            type="button"
+                                            variant={newPhoto.uploadMethod === 'upload' ? 'default' : 'outline'}
+                                            onClick={() => setNewPhoto(prev => ({ ...prev, uploadMethod: 'upload', url: '' }))}
+                                            className="flex-1"
+                                        >
+                                            <Upload className="w-4 h-4 mr-2" />
+                                            Upload de Arquivo
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant={newPhoto.uploadMethod === 'url' ? 'default' : 'outline'}
+                                            onClick={() => setNewPhoto(prev => ({ ...prev, uploadMethod: 'url', url: '' }))}
+                                            className="flex-1"
+                                        >
+                                            <ImageIcon className="w-4 h-4 mr-2" />
+                                            Link da Imagem
+                                        </Button>
+                                    </div>
                                 </div>
+
+                                {/* Upload de arquivo */}
+                                {newPhoto.uploadMethod === 'upload' && (
+                                    <div>
+                                        <Label className="text-gray-700 font-medium">Selecionar Foto</Label>
+                                        <div className="mt-2">
+                                            <FileUpload
+                                                onFileSelect={handleFileSelect}
+                                                acceptedTypes="image/*"
+                                                maxSize={5 * 1024 * 1024} // 5MB
+                                                multiple={false}
+                                                placeholder="Clique ou arraste uma foto aqui"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* URL da imagem */}
+                                {newPhoto.uploadMethod === 'url' && (
+                                    <div>
+                                        <Label htmlFor="photoUrl" className="text-gray-700 font-medium">URL da Imagem</Label>
+                                        <Input 
+                                            id="photoUrl" 
+                                            type="text" 
+                                            placeholder="https://exemplo.com/foto.jpg" 
+                                            value={newPhoto.url} 
+                                            onChange={e => setNewPhoto({ ...newPhoto, url: e.target.value })} 
+                                            className="mt-2 border-2 border-blue-100 focus:border-blue-400 rounded-xl" 
+                                            disabled={isSubmitting}
+                                        />
+                                    </div>
+                                )}
+
+                                {/* Descrição */}
                                 <div>
                                     <Label htmlFor="photoDescription" className="text-gray-700 font-medium">Descrição (Opcional)</Label>
                                     <Input 
@@ -174,11 +230,31 @@ const GalleryContent = ({ baby, updateBabyData }) => {
                                         disabled={isSubmitting}
                                     />
                                 </div>
+
+                                {/* Preview da imagem */}
+                                {newPhoto.url && (
+                                    <div>
+                                        <Label className="text-gray-700 font-medium">Preview</Label>
+                                        <div className="mt-2 border-2 border-gray-200 rounded-xl p-4">
+                                            <img 
+                                                src={newPhoto.url} 
+                                                alt="Preview" 
+                                                className="w-full max-w-xs mx-auto rounded-lg"
+                                                onError={() => toast({
+                                                    title: "Erro na imagem",
+                                                    description: "Não foi possível carregar a imagem. Verifique a URL.",
+                                                    variant: "destructive"
+                                                })}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
+                            
                             <Button 
                                 onClick={handleAddPhoto} 
                                 className="mt-6 btn-gradient text-white border-0 w-full sm:w-auto"
-                                disabled={isSubmitting}
+                                disabled={isSubmitting || !newPhoto.url}
                             >
                                 {isSubmitting ? (
                                     <div className="flex items-center gap-2">
@@ -221,6 +297,14 @@ const GalleryContent = ({ baby, updateBabyData }) => {
                                                 onError={() => handleImageLoad(photo.id)}
                                             />
                                             <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                                            
+                                            {/* Upload method indicator */}
+                                            {photo.uploadMethod === 'upload' && (
+                                                <div className="absolute top-2 left-2 bg-green-500 text-white px-2 py-1 rounded-full text-xs font-medium">
+                                                    <Upload className="w-3 h-3 inline mr-1" />
+                                                    Upload
+                                                </div>
+                                            )}
                                             
                                             {/* Action buttons overlay */}
                                             <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">

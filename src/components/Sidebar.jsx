@@ -1,13 +1,13 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-    Activity, Clock, Shield, Pill, TrendingUp, Camera, MessageCircle, Users, Settings, X, ChevronsLeft, ChevronsRight, Baby, Sparkles
+    Activity, Clock, Shield, Pill, TrendingUp, Camera, MessageCircle, Users, Settings, X, ChevronsLeft, ChevronsRight, Baby, Sparkles, FileText
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 const iconMap = {
-    Activity, Clock, Shield, Pill, TrendingUp, Camera, MessageCircle, Users, Settings
+    Activity, Clock, Shield, Pill, TrendingUp, Camera, MessageCircle, Users, Settings, FileText
 };
 
 const Sidebar = ({ sidebarOpen, setSidebarOpen, activeTab, setActiveTab, menuItems, sidebarExpanded, setSidebarExpanded }) => {

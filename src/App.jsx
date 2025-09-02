@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, createContext, useContext } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -12,6 +11,7 @@ import MedicationsContent from '@/components/MedicationsContent';
 import MilestonesContent from '@/components/MilestonesContent';
 import GalleryContent from '@/components/GalleryContent';
 import FamilyContent from '@/components/FamilyContent';
+import DocumentsContent from '@/components/DocumentsContent';
 import SettingsContent from '@/components/SettingsContent';
 import EditBabyDialog from '@/components/EditBabyDialog';
 import AddEventDialog from '@/components/AddEventDialog';
@@ -29,6 +29,7 @@ const menuItemsConfig = [
   { id: 'medications', label: 'Medicamentos', icon: 'Pill' },
   { id: 'milestones', label: 'Marcos', icon: 'TrendingUp' },
   { id: 'gallery', label: 'Galeria', icon: 'Camera' },
+  { id: 'documents', label: 'Documentos', icon: 'FileText' },
   { id: 'family', label: 'Família', icon: 'Users' },
   { id: 'settings', label: 'Configurações', icon: 'Settings' },
 ];
@@ -70,6 +71,17 @@ const getInitialBabies = () => {
         gallery: [
           { id: 1, url: 'https://images.unsplash.com/photo-1512909006721-fa1ff6085f52', description: 'Primeiro dia em casa', date: '2023-06-16T10:00:00.000Z' },
           { id: 2, url: 'https://images.unsplash.com/photo-1503454537192-b749717b85c5', description: 'Hora da soneca', date: '2023-07-01T14:00:00.000Z' }
+        ],
+        documents: [
+          { 
+            id: 1, 
+            title: 'Certidão de Nascimento', 
+            type: 'certificate', 
+            description: 'Documento oficial de nascimento',
+            date: '2023-06-15',
+            files: [{ id: 1, name: 'certidao_nascimento.pdf', type: 'application/pdf', url: '#' }],
+            createdAt: '2023-06-16T10:00:00.000Z'
+          }
         ],
         family: [
           { id: 1, name: 'Ana Silva', relationship: 'Mãe' },
@@ -160,6 +172,8 @@ function App() {
         return <MilestonesContent baby={selectedBaby} updateBabyData={updateBabyData} />;
       case 'gallery':
         return <GalleryContent baby={selectedBaby} updateBabyData={updateBabyData} />;
+      case 'documents':
+        return <DocumentsContent baby={selectedBaby} updateBabyData={updateBabyData} />;
       case 'family':
         return <FamilyContent baby={selectedBaby} updateBabyData={updateBabyData} />;
       case 'settings':
