@@ -5,9 +5,9 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/use-toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
 
-const FileUpload = ({ 
-    onFileSelect, 
-    acceptedTypes = "image/*", 
+const FileUpload = ({
+    onFileSelect,
+    acceptedTypes = "image/*",
     maxSize = 5 * 1024 * 1024, // 5MB default
     multiple = false,
     className = "",
@@ -33,18 +33,21 @@ const FileUpload = ({
     };
 
     const simulateUpload = async (file) => {
-        // Simula upload para demonstração
         return new Promise((resolve) => {
-            setTimeout(() => {
-                const fakeUrl = URL.createObjectURL(file);
-                resolve(fakeUrl);
-            }, 1500);
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                // Adiciona um pequeno delay para simular rede
+                setTimeout(() => {
+                    resolve(reader.result);
+                }, 800);
+            };
+            reader.readAsDataURL(file);
         });
     };
 
     const handleFileSelect = async (files) => {
         const fileList = Array.from(files);
-        
+
         // Validar tamanho dos arquivos
         const oversizedFiles = fileList.filter(file => file.size > maxSize);
         if (oversizedFiles.length > 0) {
@@ -73,7 +76,7 @@ const FileUpload = ({
 
             const uploadedFileData = await Promise.all(uploadPromises);
             setUploadedFiles(prev => [...prev, ...uploadedFileData]);
-            
+
             if (onFileSelect) {
                 onFileSelect(multiple ? uploadedFileData : uploadedFileData[0]);
             }
@@ -120,11 +123,10 @@ const FileUpload = ({
     return (
         <div className={`space-y-4 ${className}`}>
             <div
-                className={`relative border-2 border-dashed rounded-2xl p-8 text-center transition-all duration-300 ${
-                    isDragging 
-                        ? 'border-blue-400 bg-blue-50' 
+                className={`relative border-2 border-dashed rounded-2xl p-8 text-center transition-all duration-300 ${isDragging
+                        ? 'border-blue-400 bg-blue-50'
                         : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50/50'
-                } ${isUploading ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}
+                    } ${isUploading ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
