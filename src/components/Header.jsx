@@ -15,7 +15,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 const Header = ({ setSidebarOpen, setActiveTab, baby }) => {
-  const { logout, user } = useAuth();
+  const { signOut, user } = useAuth();
   const handleFeatureClick = (feature) => {
     toast({
       title: "🚧 Funcionalidade em desenvolvimento",
@@ -24,12 +24,20 @@ const Header = ({ setSidebarOpen, setActiveTab, baby }) => {
     });
   };
 
-  const handleLogout = () => {
-    logout();
-    toast({
-      title: "Até logo!",
-      description: "Você saiu com sucesso.",
-    });
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      toast({
+        title: "Até logo!",
+        description: "Você saiu com sucesso.",
+      });
+    } catch (error) {
+      toast({
+        title: "Erro ao sair",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
   };
 
   return (
