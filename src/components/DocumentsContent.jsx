@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from '@/components/ui/use-toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import FileUpload from '@/components/FileUpload';
+import { api } from '../services/api';
 import {
     Dialog,
     DialogContent,
@@ -94,15 +95,31 @@ const DocumentsContent = ({ baby, updateBabyData }) => {
         setIsSubmitting(true);
 
         try {
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            const uploadedFiles = [];
+
+            // Faz o upload de cada arquivo para o R2 e salva no D1
+            for (const fileObj of newDocument.files) {
+                const formData = new FormData();
+                formData.append('babyId', baby.id);
+                formData.append('title', newDocument.title);
+                formData.append('type', newDocument.type);
+                formData.append('file', fileObj.file); // O objeto File original
+
+                const result = await api.uploadDocument(formData);
+                uploadedFiles.push({
+                    ...fileObj,
+                    id: result.id,
+                    url: fileObj.url // Mantemos o Base64 para preview imediato sem recarregar
+                });
+            }
 
             const documentToAdd = {
-                id: Date.now(),
+                id: uploadedFiles[0]?.id || Date.now(),
                 title: newDocument.title,
                 type: newDocument.type,
                 description: newDocument.description,
                 date: newDocument.date,
-                files: newDocument.files,
+                files: uploadedFiles,
                 createdAt: new Date().toISOString(),
             };
 
@@ -135,18 +152,27 @@ const DocumentsContent = ({ baby, updateBabyData }) => {
         }
     };
 
-    const handleDeleteDocument = () => {
+    const handleDeleteDocument = async () => {
         if (documentToDelete) {
-            const updatedDocuments = (baby.documents || []).filter(
-                (doc) => doc.id !== documentToDelete.id
-            );
-            const updatedBaby = { ...baby, documents: updatedDocuments };
-            updateBabyData(updatedBaby);
-            toast({
-                title: "Documento Removido!",
-                description: "O documento foi removido com sucesso.",
-            });
-            setDocumentToDelete(null);
+            try {
+                await api.deleteDocument(documentToDelete.id);
+                const updatedDocuments = (baby.documents || []).filter(
+                    (doc) => doc.id !== documentToDelete.id
+                );
+                const updatedBaby = { ...baby, documents: updatedDocuments };
+                updateBabyData(updatedBaby);
+                toast({
+                    title: "🗑️ Documento Excluído",
+                    description: `${documentToDelete.title} foi removido com sucesso.`,
+                });
+                setDocumentToDelete(null);
+            } catch (error) {
+                toast({
+                    title: "Erro",
+                    description: "Falha ao excluir o documento no servidor.",
+                    variant: "destructive",
+                });
+            }
         }
     };
 

@@ -70,6 +70,7 @@ const FileUpload = ({
                     size: file.size,
                     type: file.type,
                     url: url,
+                    file: file,
                     uploadedAt: new Date().toISOString()
                 };
             });
@@ -124,8 +125,8 @@ const FileUpload = ({
         <div className={`space-y-4 ${className}`}>
             <div
                 className={`relative border-2 border-dashed rounded-2xl p-8 text-center transition-all duration-300 ${isDragging
-                        ? 'border-blue-400 bg-blue-50'
-                        : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50/50'
+                    ? 'border-blue-400 bg-blue-50'
+                    : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50/50'
                     } ${isUploading ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}

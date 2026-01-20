@@ -9,16 +9,17 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/use-toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import FileUpload from '@/components/FileUpload';
+import { safeParseDate } from '@/lib/utils';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 
 const GalleryContent = ({ baby, updateBabyData }) => {
@@ -144,7 +145,7 @@ const GalleryContent = ({ baby, updateBabyData }) => {
                             </div>
                             <h2 className="text-2xl font-bold gradient-text">Galeria de Memórias</h2>
                         </div>
-                        <Button 
+                        <Button
                             onClick={() => setShowForm(!showForm)}
                             className="btn-gradient text-white border-0 w-full sm:w-auto"
                         >
@@ -154,9 +155,9 @@ const GalleryContent = ({ baby, updateBabyData }) => {
                     </div>
 
                     {showForm && (
-                        <motion.div 
-                            className="mb-6 gradient-card rounded-2xl p-6 border-0" 
-                            initial={{ opacity: 0, height: 0 }} 
+                        <motion.div
+                            className="mb-6 gradient-card rounded-2xl p-6 border-0"
+                            initial={{ opacity: 0, height: 0 }}
                             animate={{ opacity: 1, height: 'auto' }}
                         >
                             <div className="space-y-4">
@@ -205,13 +206,13 @@ const GalleryContent = ({ baby, updateBabyData }) => {
                                 {newPhoto.uploadMethod === 'url' && (
                                     <div>
                                         <Label htmlFor="photoUrl" className="text-gray-700 font-medium">URL da Imagem</Label>
-                                        <Input 
-                                            id="photoUrl" 
-                                            type="text" 
-                                            placeholder="https://exemplo.com/foto.jpg" 
-                                            value={newPhoto.url} 
-                                            onChange={e => setNewPhoto({ ...newPhoto, url: e.target.value })} 
-                                            className="mt-2 border-2 border-blue-100 focus:border-blue-400 rounded-xl" 
+                                        <Input
+                                            id="photoUrl"
+                                            type="text"
+                                            placeholder="https://exemplo.com/foto.jpg"
+                                            value={newPhoto.url}
+                                            onChange={e => setNewPhoto({ ...newPhoto, url: e.target.value })}
+                                            className="mt-2 border-2 border-blue-100 focus:border-blue-400 rounded-xl"
                                             disabled={isSubmitting}
                                         />
                                     </div>
@@ -220,12 +221,12 @@ const GalleryContent = ({ baby, updateBabyData }) => {
                                 {/* Descrição */}
                                 <div>
                                     <Label htmlFor="photoDescription" className="text-gray-700 font-medium">Descrição (Opcional)</Label>
-                                    <Input 
-                                        id="photoDescription" 
-                                        type="text" 
-                                        placeholder="Primeiro banho do bebê" 
-                                        value={newPhoto.description} 
-                                        onChange={e => setNewPhoto({ ...newPhoto, description: e.target.value })} 
+                                    <Input
+                                        id="photoDescription"
+                                        type="text"
+                                        placeholder="Primeiro banho do bebê"
+                                        value={newPhoto.description}
+                                        onChange={e => setNewPhoto({ ...newPhoto, description: e.target.value })}
                                         className="mt-2 border-2 border-blue-100 focus:border-blue-400 rounded-xl"
                                         disabled={isSubmitting}
                                     />
@@ -236,9 +237,9 @@ const GalleryContent = ({ baby, updateBabyData }) => {
                                     <div>
                                         <Label className="text-gray-700 font-medium">Preview</Label>
                                         <div className="mt-2 border-2 border-gray-200 rounded-xl p-4">
-                                            <img 
-                                                src={newPhoto.url} 
-                                                alt="Preview" 
+                                            <img
+                                                src={newPhoto.url}
+                                                alt="Preview"
                                                 className="w-full max-w-xs mx-auto rounded-lg"
                                                 onError={() => toast({
                                                     title: "Erro na imagem",
@@ -250,9 +251,9 @@ const GalleryContent = ({ baby, updateBabyData }) => {
                                     </div>
                                 )}
                             </div>
-                            
-                            <Button 
-                                onClick={handleAddPhoto} 
+
+                            <Button
+                                onClick={handleAddPhoto}
                                 className="mt-6 btn-gradient text-white border-0 w-full sm:w-auto"
                                 disabled={isSubmitting || !newPhoto.url}
                             >
@@ -288,16 +289,16 @@ const GalleryContent = ({ baby, updateBabyData }) => {
                                             </div>
                                         )}
                                         <div className="relative overflow-hidden rounded-t-xl">
-                                            <img  
-                                                alt={photo.description} 
-                                                className="w-full h-32 sm:h-48 object-cover transition-all duration-500 group-hover:scale-110" 
+                                            <img
+                                                alt={photo.description}
+                                                className="w-full h-32 sm:h-48 object-cover transition-all duration-500 group-hover:scale-110"
                                                 src={photo.url}
                                                 onLoadStart={() => handleImageLoadStart(photo.id)}
                                                 onLoad={() => handleImageLoad(photo.id)}
                                                 onError={() => handleImageLoad(photo.id)}
                                             />
                                             <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                                            
+
                                             {/* Upload method indicator */}
                                             {photo.uploadMethod === 'upload' && (
                                                 <div className="absolute top-2 left-2 bg-green-500 text-white px-2 py-1 rounded-full text-xs font-medium">
@@ -305,7 +306,7 @@ const GalleryContent = ({ baby, updateBabyData }) => {
                                                     Upload
                                                 </div>
                                             )}
-                                            
+
                                             {/* Action buttons overlay */}
                                             <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                                                 <Button
@@ -318,7 +319,7 @@ const GalleryContent = ({ baby, updateBabyData }) => {
                                                 </Button>
                                                 <AlertDialog>
                                                     <AlertDialogTrigger asChild>
-                                                        <Button 
+                                                        <Button
                                                             size="icon"
                                                             variant="secondary"
                                                             className="w-8 h-8 rounded-full bg-white/90 hover:bg-white"
@@ -335,13 +336,13 @@ const GalleryContent = ({ baby, updateBabyData }) => {
                                                             </AlertDialogDescription>
                                                         </AlertDialogHeader>
                                                         <AlertDialogFooter className="flex-col sm:flex-row gap-2">
-                                                            <AlertDialogCancel 
+                                                            <AlertDialogCancel
                                                                 onClick={() => setPhotoToDelete(null)}
                                                                 className="w-full sm:w-auto rounded-xl"
                                                             >
                                                                 Cancelar
                                                             </AlertDialogCancel>
-                                                            <AlertDialogAction 
+                                                            <AlertDialogAction
                                                                 onClick={handleDeletePhoto}
                                                                 className="w-full sm:w-auto bg-red-500 hover:bg-red-600 rounded-xl"
                                                             >
@@ -359,7 +360,7 @@ const GalleryContent = ({ baby, updateBabyData }) => {
                                                 {photo.description}
                                             </p>
                                             <p className="text-xs text-gray-500">
-                                                {new Date(photo.date).toLocaleDateString('pt-BR')}
+                                                {safeParseDate(photo.date).toLocaleDateString('pt-BR')}
                                             </p>
                                         </div>
                                     </CardFooter>
@@ -372,7 +373,7 @@ const GalleryContent = ({ baby, updateBabyData }) => {
                                 </div>
                                 <h3 className="text-xl font-bold text-gray-600 mb-2">Nenhuma foto ainda</h3>
                                 <p className="text-gray-500 mb-4">Comece criando memórias especiais do seu bebê</p>
-                                <Button 
+                                <Button
                                     onClick={() => setShowForm(true)}
                                     className="btn-gradient text-white border-0"
                                 >

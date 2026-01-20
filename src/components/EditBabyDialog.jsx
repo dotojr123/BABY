@@ -14,6 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { toast } from '@/components/ui/use-toast';
 import { format } from 'date-fns';
 import { Camera, Upload, Image as ImageIcon } from 'lucide-react';
+import { safeParseDate } from '@/lib/utils';
 import FileUpload from '@/components/FileUpload';
 import LoadingSpinner from '@/components/LoadingSpinner';
 
@@ -36,13 +37,13 @@ const EditBabyDialog = ({ isOpen, onClose, baby, updateBabyData }) => {
     try {
       // Simula o upload da foto
       await new Promise(resolve => setTimeout(resolve, 1000));
-      
+
       setEditedBaby(prev => ({
         ...prev,
         photo: file.url,
         photoUploadMethod: 'upload'
       }));
-      
+
       toast({
         title: "📸 Foto Atualizada!",
         description: "A foto do perfil foi atualizada com sucesso.",
@@ -90,12 +91,12 @@ const EditBabyDialog = ({ isOpen, onClose, baby, updateBabyData }) => {
             Faça alterações nos dados do seu bebê aqui. Clique em salvar quando terminar.
           </DialogDescription>
         </DialogHeader>
-        
+
         <div className="grid gap-6 py-4">
           {/* Seção da Foto */}
           <div className="space-y-4">
             <Label className="text-gray-700 font-medium">Foto do Perfil</Label>
-            
+
             {/* Preview da foto atual */}
             <div className="flex flex-col items-center gap-4">
               <div className="relative">
@@ -111,7 +112,7 @@ const EditBabyDialog = ({ isOpen, onClose, baby, updateBabyData }) => {
                   </div>
                 )}
               </div>
-              
+
               {/* Método de upload */}
               <div className="w-full">
                 <div className="flex gap-2 mb-3">
@@ -163,11 +164,11 @@ const EditBabyDialog = ({ isOpen, onClose, baby, updateBabyData }) => {
                 {/* URL da imagem */}
                 {photoUploadMethod === 'url' && (
                   <div>
-                    <Input 
-                      type="text" 
-                      placeholder="https://exemplo.com/foto.jpg" 
-                      value={editedBaby.photo || ''} 
-                      onChange={e => setEditedBaby(prev => ({ ...prev, photo: e.target.value, photoUploadMethod: 'url' }))} 
+                    <Input
+                      type="text"
+                      placeholder="https://exemplo.com/foto.jpg"
+                      value={editedBaby.photo || ''}
+                      onChange={e => setEditedBaby(prev => ({ ...prev, photo: e.target.value, photoUploadMethod: 'url' }))}
                       className="border-2 border-blue-100 focus:border-blue-400 rounded-xl"
                     />
                   </div>
@@ -190,7 +191,7 @@ const EditBabyDialog = ({ isOpen, onClose, baby, updateBabyData }) => {
                 placeholder="Nome do bebê"
               />
             </div>
-            
+
             <div>
               <Label htmlFor="birthDate" className="text-gray-700 font-medium">
                 Data de Nascimento
@@ -198,7 +199,7 @@ const EditBabyDialog = ({ isOpen, onClose, baby, updateBabyData }) => {
               <Input
                 id="birthDate"
                 type="date"
-                value={editedBaby.birthDate ? format(new Date(editedBaby.birthDate), 'yyyy-MM-dd') : ''}
+                value={editedBaby.birthDate ? format(safeParseDate(editedBaby.birthDate), 'yyyy-MM-dd') : ''}
                 onChange={handleChange}
                 className="mt-2 border-2 border-blue-100 focus:border-blue-400 rounded-xl"
               />
@@ -219,7 +220,7 @@ const EditBabyDialog = ({ isOpen, onClose, baby, updateBabyData }) => {
                 placeholder="Ex: 8.2 kg"
               />
             </div>
-            
+
             <div>
               <Label htmlFor="height" className="text-gray-700 font-medium">
                 Altura Atual
@@ -234,7 +235,7 @@ const EditBabyDialog = ({ isOpen, onClose, baby, updateBabyData }) => {
             </div>
           </div>
         </div>
-        
+
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose} className="rounded-xl">
             Cancelar

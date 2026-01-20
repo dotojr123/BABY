@@ -4,8 +4,12 @@ import { Pill, Plus, Clock, CheckCircle, AlertCircle, Sparkles, Edit2, Trash2 } 
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/use-toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { api } from '../services/api';
+import { safeParseDate } from '@/lib/utils';
+
+
 import {
     Dialog,
     DialogContent,
@@ -43,12 +47,10 @@ const MedicationsContent = ({ baby, updateBabyData }) => {
         setIsSubmitting(true);
 
         try {
-            await new Promise(resolve => setTimeout(resolve, 800));
-
-            const newEvent = {
-                id: Date.now(),
+            const eventData = {
+                babyId: baby.id,
                 type: 'medication',
-                name: newMedication.name,
+                title: newMedication.name,
                 details: newMedication.details,
                 duration: newMedication.duration,
                 frequency: newMedication.frequency,
@@ -56,6 +58,9 @@ const MedicationsContent = ({ baby, updateBabyData }) => {
                 completed: false,
             };
 
+            const result = await api.addEvent(eventData);
+
+            const newEvent = { ...eventData, id: result.id };
             const updatedBaby = {
                 ...baby,
                 events: [...(baby.events || []), newEvent],
@@ -81,14 +86,23 @@ const MedicationsContent = ({ baby, updateBabyData }) => {
 
     const handleDeleteMedication = async (eventId) => {
         if (window.confirm("Tem certeza que deseja excluir este medicamento?")) {
-            const updatedEvents = (baby.events || []).filter(event => event.id !== eventId);
-            const updatedBaby = { ...baby, events: updatedEvents };
-            updateBabyData(updatedBaby);
-            toast({
-                title: "🗑️ Medicamento Excluído",
-                description: "O registro foi removido com sucesso.",
-            });
-            setIsDetailsOpen(false);
+            try {
+                await api.deleteEvent(eventId);
+                const updatedEvents = (baby.events || []).filter(event => event.id !== eventId);
+                const updatedBaby = { ...baby, events: updatedEvents };
+                updateBabyData(updatedBaby);
+                toast({
+                    title: "🗑️ Medicamento Excluído",
+                    description: "O registro foi removido com sucesso.",
+                });
+                setIsDetailsOpen(false);
+            } catch (error) {
+                toast({
+                    title: "Erro",
+                    description: "Falha ao excluir o medicamento.",
+                    variant: "destructive",
+                });
+            }
         }
     };
 
@@ -104,11 +118,16 @@ const MedicationsContent = ({ baby, updateBabyData }) => {
 
         setIsSubmitting(true);
         try {
-            await new Promise(resolve => setTimeout(resolve, 600));
+            const eventData = {
+                ...editMedication,
+                title: editMedication.name || editMedication.title,
+                date: new Date(editMedication.date).toISOString()
+            };
+
+            await api.updateEvent(editMedication.id, eventData);
+
             const updatedEvents = (baby.events || []).map(event =>
-                event.id === editMedication.id
-                    ? { ...editMedication, date: new Date(editMedication.date).toISOString() }
-                    : event
+                event.id === editMedication.id ? eventData : event
             );
             const updatedBaby = { ...baby, events: updatedEvents };
             updateBabyData(updatedBaby);
@@ -130,29 +149,42 @@ const MedicationsContent = ({ baby, updateBabyData }) => {
         }
     };
 
-    const toggleComplete = (eventId) => {
-        const updatedEvents = (baby.events || []).map(event =>
-            event.id === eventId ? { ...event, completed: !event.completed } : event
-        );
-        const updatedBaby = { ...baby, events: updatedEvents };
-        updateBabyData(updatedBaby);
+    const toggleComplete = async (eventId) => {
+        const event = (baby.events || []).find(e => e.id === eventId);
+        if (!event) return;
 
-        const medication = updatedEvents.find(e => e.id === eventId);
-        if (medication?.completed) {
+        const updatedEvent = { ...event, completed: !event.completed };
+
+        try {
+            await api.updateEvent(eventId, updatedEvent);
+            const updatedEvents = (baby.events || []).map(e =>
+                e.id === eventId ? updatedEvent : e
+            );
+            const updatedBaby = { ...baby, events: updatedEvents };
+            updateBabyData(updatedBaby);
+
+            if (updatedEvent.completed) {
+                toast({
+                    title: "✅ Medicamento Administrado",
+                    description: `${event.name || event.title} marcado como concluído.`,
+                });
+            }
+        } catch (error) {
             toast({
-                title: "✅ Medicamento Administrado!",
-                description: `${medication.name} foi marcado como administrado.`,
+                title: "Erro",
+                description: "Falha ao atualizar o status do medicamento.",
+                variant: "destructive",
             });
         }
     };
 
-    const medications = (baby.events || []).filter(e => e.type === 'medication').sort((a, b) => new Date(b.date) - new Date(a.date));
+    const medications = (baby.events || []).filter(e => e.type === 'medication').sort((a, b) => safeParseDate(b.date) - safeParseDate(a.date));
     const completedCount = medications.filter(m => m.completed).length;
     const completionRate = medications.length > 0 ? Math.round((completedCount / medications.length) * 100) : 0;
 
     // Check for overdue medications
     const now = new Date();
-    const overdueMeds = medications.filter(m => !m.completed && new Date(m.date) < now);
+    const overdueMeds = medications.filter(m => !m.completed && safeParseDate(m.date) < now);
 
     return (
         <div className="space-y-6">
@@ -305,7 +337,7 @@ const MedicationsContent = ({ baby, updateBabyData }) => {
 
                     <div className="space-y-4">
                         {medications.length > 0 ? medications.map((med, index) => {
-                            const isOverdue = !med.completed && new Date(med.date) < now;
+                            const isOverdue = !med.completed && safeParseDate(med.date) < now;
                             return (
                                 <motion.div
                                     key={med.id}
@@ -364,7 +396,7 @@ const MedicationsContent = ({ baby, updateBabyData }) => {
                                                     </div>
                                                 )}
                                                 <p className="text-xs text-gray-500">
-                                                    {med.completed ? 'Administrado em' : isOverdue ? 'Atrasado desde' : 'Agendado para'} {format(new Date(med.date), "d MMM yyyy 'às' HH:mm'h'", { locale: ptBR })}
+                                                    {med.completed ? 'Administrado em' : isOverdue ? 'Atrasado desde' : 'Agendado para'} {format(safeParseDate(med.date), "d MMM yyyy 'às' HH:mm'h'", { locale: ptBR })}
                                                 </p>
                                             </div>
                                         </div>
@@ -445,7 +477,7 @@ const MedicationsContent = ({ baby, updateBabyData }) => {
                                 <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
                                     <p className="text-xs text-blue-600 font-bold uppercase mb-1">Início</p>
                                     <p className="font-medium text-gray-800">
-                                        {format(new Date(selectedMed.date), "dd/MM/yy 'às' HH:mm", { locale: ptBR })}
+                                        {format(safeParseDate(selectedMed.date), "dd/MM/yy 'às' HH:mm", { locale: ptBR })}
                                     </p>
                                 </div>
                             </div>
@@ -497,7 +529,7 @@ const MedicationsContent = ({ baby, updateBabyData }) => {
                                 onClick={() => {
                                     setEditMedication({
                                         ...selectedMed,
-                                        date: new Date(selectedMed.date).toISOString().slice(0, 16)
+                                        date: safeParseDate(selectedMed.date).toISOString().slice(0, 16)
                                     });
                                     setIsEditOpen(true);
                                 }}

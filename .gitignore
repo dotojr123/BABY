@@ -1,1 +1,38 @@
-node_modules
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Cache
+.cache/
+.wrangler/
+
+# Capacitor
+android/.gradle/
+android/app/build/
+ios/Pods/
+
+# Vercel
+.vercel

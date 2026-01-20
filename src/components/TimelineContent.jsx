@@ -6,14 +6,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import LoadingSpinner from '@/components/LoadingSpinner';
-import { format, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
+import { format, startOfMonth, endOfMonth, isWithinInterval, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { api } from '@/services/api';
+import { safeParseDate } from '@/lib/utils';
 
 const iconMap = {
     appointment: Calendar,
     medication: Pill,
     vaccine: Syringe,
     milestone: Star,
+    photo: Star, // Adicionado suporte para fotos
     default: Baby,
 };
 
@@ -22,18 +25,25 @@ const colorMap = {
     medication: 'from-orange-500 to-orange-600',
     vaccine: 'from-green-500 to-green-600',
     milestone: 'from-pink-500 to-pink-600',
+    photo: 'from-purple-500 to-purple-600',
     default: 'from-gray-500 to-gray-600'
 };
 
+
+
 const TimelineChart = ({ events }) => {
     const monthlyData = events.reduce((acc, event) => {
-        const month = format(event.date, 'MMM yyyy', { locale: ptBR });
-        if (!acc[month]) {
-            acc[month] = { total: 0, completed: 0, appointment: 0, medication: 0, vaccine: 0, milestone: 0 };
+        try {
+            const month = format(safeParseDate(event.date), 'MMM yyyy', { locale: ptBR });
+            if (!acc[month]) {
+                acc[month] = { total: 0, completed: 0, appointment: 0, medication: 0, vaccine: 0, milestone: 0, photo: 0 };
+            }
+            acc[month].total++;
+            acc[month][event.eventType] = (acc[month][event.eventType] || 0) + 1;
+            if (event.isCompleted) acc[month].completed++;
+        } catch (e) {
+            console.error("Chart date error:", e);
         }
-        acc[month].total++;
-        acc[month][event.eventType]++;
-        if (event.isCompleted) acc[month].completed++;
         return acc;
     }, {});
 
@@ -56,19 +66,19 @@ const TimelineChart = ({ events }) => {
                                 <span className="text-xs text-gray-500">{data.total} eventos</span>
                             </div>
                             <div className="flex gap-1 h-2 bg-gray-200 rounded-full overflow-hidden">
-                                <div 
+                                <div
                                     className="bg-blue-500 transition-all duration-500"
                                     style={{ width: `${(data.appointment / data.total) * 100}%` }}
                                 />
-                                <div 
+                                <div
                                     className="bg-orange-500 transition-all duration-500"
                                     style={{ width: `${(data.medication / data.total) * 100}%` }}
                                 />
-                                <div 
+                                <div
                                     className="bg-green-500 transition-all duration-500"
                                     style={{ width: `${(data.vaccine / data.total) * 100}%` }}
                                 />
-                                <div 
+                                <div
                                     className="bg-pink-500 transition-all duration-500"
                                     style={{ width: `${(data.milestone / data.total) * 100}%` }}
                                 />
@@ -93,10 +103,10 @@ const TimelineStats = ({ events }) => {
             acc[event.eventType] = (acc[event.eventType] || 0) + 1;
             return acc;
         }, {}),
-        thisMonth: events.filter(e => 
-            isWithinInterval(e.date, { 
-                start: startOfMonth(new Date()), 
-                end: endOfMonth(new Date()) 
+        thisMonth: events.filter(e =>
+            isWithinInterval(safeParseDate(e.date), {
+                start: startOfMonth(new Date()),
+                end: endOfMonth(new Date())
             })
         ).length
     };
@@ -169,22 +179,30 @@ const TimelineContent = ({ baby }) => {
 
     useEffect(() => {
         const loadEvents = async () => {
+            if (!baby?.id) return;
             setIsLoading(true);
-            await new Promise(resolve => setTimeout(resolve, 800));
-            
-            const events = [
-                ...(baby.events || []).map(e => ({...e, eventType: e.type, date: new Date(e.date), isCompleted: e.completed })),
-                ...(baby.vaccines || []).map(v => ({...v, eventType: 'vaccine', date: new Date(v.date), isCompleted: v.status === 'completed', name: v.name})),
-                ...(baby.milestones || []).map(m => ({...m, eventType: 'milestone', date: new Date(m.date), isCompleted: m.achieved, name: m.milestone}))
-            ].sort((a,b) => b.date - a.date);
-            
-            setAllEvents(events);
-            setFilteredEvents(events);
-            setIsLoading(false);
+            try {
+                const eventsRaw = await api.getEvents(baby.id);
+
+                const events = eventsRaw.map(e => ({
+                    ...e,
+                    eventType: e.type,
+                    date: safeParseDate(e.date),
+                    isCompleted: e.completed || e.status === 'completed' || e.achieved,
+                    name: e.title || e.name || e.milestone || 'Evento sem nome'
+                })).sort((a, b) => b.date - a.date);
+
+                setAllEvents(events);
+                setFilteredEvents(events);
+            } catch (error) {
+                console.error("Timeline load error:", error);
+            } finally {
+                setIsLoading(false);
+            }
         };
 
         loadEvents();
-    }, [baby]);
+    }, [baby?.id]);
 
     useEffect(() => {
         let filtered = [...allEvents];
@@ -196,14 +214,14 @@ const TimelineContent = ({ baby }) => {
 
         // Filter by status
         if (filters.status !== 'all') {
-            filtered = filtered.filter(event => 
+            filtered = filtered.filter(event =>
                 filters.status === 'completed' ? event.isCompleted : !event.isCompleted
             );
         }
 
         // Filter by search
         if (filters.search) {
-            filtered = filtered.filter(event => 
+            filtered = filtered.filter(event =>
                 event.name.toLowerCase().includes(filters.search.toLowerCase()) ||
                 (event.details && event.details.toLowerCase().includes(filters.search.toLowerCase()))
             );
@@ -212,8 +230,8 @@ const TimelineContent = ({ baby }) => {
         // Filter by month
         if (filters.month !== 'all') {
             const [year, month] = filters.month.split('-');
-            filtered = filtered.filter(event => 
-                event.date.getFullYear() === parseInt(year) && 
+            filtered = filtered.filter(event =>
+                event.date.getFullYear() === parseInt(year) &&
                 event.date.getMonth() === parseInt(month) - 1
             );
         }
@@ -225,11 +243,11 @@ const TimelineContent = ({ baby }) => {
         const data = filteredEvents.map(event => ({
             Nome: event.name,
             Tipo: event.eventType,
-            Data: format(event.date, 'dd/MM/yyyy HH:mm'),
+            Data: format(safeParseDate(event.date), 'dd/MM/yyyy HH:mm'),
             Status: event.isCompleted ? 'Concluído' : 'Pendente',
             Detalhes: event.details || ''
         }));
-        
+
         console.log('Exportando timeline:', data);
         // Aqui você implementaria a exportação real (CSV, PDF, etc.)
     };
@@ -240,7 +258,7 @@ const TimelineContent = ({ baby }) => {
 
     return (
         <div className="space-y-6">
-            <motion.div 
+            <motion.div
                 className="glass-card rounded-3xl p-6 relative overflow-hidden"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -291,13 +309,13 @@ const TimelineContent = ({ baby }) => {
                             <Input
                                 placeholder="Buscar eventos..."
                                 value={filters.search}
-                                onChange={(e) => setFilters({...filters, search: e.target.value})}
+                                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
                                 className="pl-10 rounded-xl border-2"
                             />
                         </div>
                         <select
                             value={filters.type}
-                            onChange={(e) => setFilters({...filters, type: e.target.value})}
+                            onChange={(e) => setFilters({ ...filters, type: e.target.value })}
                             className="p-2 border-2 border-gray-200 rounded-xl focus:border-blue-400 focus:outline-none"
                         >
                             <option value="all">Todos os tipos</option>
@@ -308,7 +326,7 @@ const TimelineContent = ({ baby }) => {
                         </select>
                         <select
                             value={filters.status}
-                            onChange={(e) => setFilters({...filters, status: e.target.value})}
+                            onChange={(e) => setFilters({ ...filters, status: e.target.value })}
                             className="p-2 border-2 border-gray-200 rounded-xl focus:border-blue-400 focus:outline-none"
                         >
                             <option value="all">Todos os status</option>
@@ -318,7 +336,7 @@ const TimelineContent = ({ baby }) => {
                         <input
                             type="month"
                             value={filters.month}
-                            onChange={(e) => setFilters({...filters, month: e.target.value})}
+                            onChange={(e) => setFilters({ ...filters, month: e.target.value })}
                             className="p-2 border-2 border-gray-200 rounded-xl focus:border-blue-400 focus:outline-none"
                         />
                     </div>
@@ -350,7 +368,7 @@ const TimelineContent = ({ baby }) => {
                             </Button>
                         )}
                     </div>
-                    
+
                     {filteredEvents.length === 0 ? (
                         <div className="text-center py-16">
                             <div className="animate-float">
@@ -360,7 +378,7 @@ const TimelineContent = ({ baby }) => {
                                 {allEvents.length === 0 ? 'Timeline vazia' : 'Nenhum evento encontrado'}
                             </h3>
                             <p className="text-gray-500 mb-4">
-                                {allEvents.length === 0 
+                                {allEvents.length === 0
                                     ? 'Adicione eventos, vacinas ou marcos para ver a timeline'
                                     : 'Tente ajustar os filtros para encontrar o que procura'
                                 }
@@ -374,8 +392,8 @@ const TimelineContent = ({ baby }) => {
                                 const Icon = iconMap[event.eventType] || iconMap.default;
                                 const gradientColor = colorMap[event.eventType] || colorMap.default;
                                 return (
-                                    <motion.div 
-                                        key={`${event.id}-${event.eventType}-${index}`} 
+                                    <motion.div
+                                        key={`${event.id}-${event.eventType}-${index}`}
                                         className="relative mb-8 flex items-center"
                                         initial={{ opacity: 0, x: -20 }}
                                         animate={{ opacity: 1, x: 0 }}
@@ -385,7 +403,7 @@ const TimelineContent = ({ baby }) => {
                                             <Icon className="w-6 h-6 text-white" />
                                         </div>
                                         <div className="ml-6 flex-1">
-                                            <motion.div 
+                                            <motion.div
                                                 className="gradient-card rounded-2xl p-4 floating-card border-0 shadow-lg"
                                                 whileHover={{ scale: 1.02 }}
                                             >
@@ -403,22 +421,22 @@ const TimelineContent = ({ baby }) => {
                                                     </div>
                                                     <div className="text-left sm:text-right flex-shrink-0 bg-white/70 rounded-xl p-3">
                                                         <p className="text-sm font-bold text-gray-800">
-                                                            {format(event.date, "d MMM yyyy", { locale: ptBR })}
+                                                            {format(safeParseDate(event.date), "d MMM yyyy", { locale: ptBR })}
                                                         </p>
                                                         <p className="text-xs text-gray-600">
-                                                            {format(event.date, "HH:mm'h'", { locale: ptBR })}
+                                                            {format(safeParseDate(event.date), "HH:mm'h'", { locale: ptBR })}
                                                         </p>
                                                     </div>
                                                 </div>
                                                 <div className="mt-3 flex items-center justify-between">
                                                     {event.isCompleted ? (
                                                         <div className="flex items-center text-green-600 bg-green-50 px-3 py-1 rounded-full">
-                                                            <CheckCircle className="w-4 h-4 mr-2"/>
+                                                            <CheckCircle className="w-4 h-4 mr-2" />
                                                             <span className="text-sm font-medium">Concluído</span>
                                                         </div>
                                                     ) : (
                                                         <div className="flex items-center text-orange-600 bg-orange-50 px-3 py-1 rounded-full">
-                                                            <Clock className="w-4 h-4 mr-2"/>
+                                                            <Clock className="w-4 h-4 mr-2" />
                                                             <span className="text-sm font-medium">Pendente</span>
                                                         </div>
                                                     )}

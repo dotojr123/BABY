@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { api } from '@/services/api';
 import { motion } from 'framer-motion';
 import { format, differenceInMonths, differenceInDays, parseISO, subDays, isAfter } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -7,59 +8,61 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Calendar, Pill, Shield, TrendingUp, Edit, Plus, Heart, Star, Clock, Activity, AlertTriangle, Target, Zap } from 'lucide-react';
+import { safeParseDate } from '@/lib/utils';
+
+
 
 const getBabyAge = (birthDate) => {
-    const today = new Date();
-    const birth = parseISO(birthDate);
+    if (!birthDate) return 'Idade não informada';
+    try {
+        const today = new Date();
+        const birth = typeof birthDate === 'string' ? parseISO(birthDate) : birthDate;
 
-    const months = differenceInMonths(today, birth);
-    const remainingDays = differenceInDays(today, new Date(birth.getFullYear(), birth.getMonth() + months, birth.getDate()));
+        if (isNaN(birth.getTime())) return 'Data de nascimento inválida';
 
-    if (months < 1) {
-        return `${remainingDays} dia(s)`;
-    } else if (months < 12) {
-        return `${months} mês(es) e ${remainingDays} dia(s)`;
-    } else {
-        const years = Math.floor(months / 12);
-        const remainingMonths = months % 12;
-        return `${years} ano(s), ${remainingMonths} mês(es) e ${remainingDays} dia(s)`;
+        const months = differenceInMonths(today, birth);
+        const remainingDays = differenceInDays(today, new Date(birth.getFullYear(), birth.getMonth() + months, birth.getDate()));
+
+        if (months < 1) {
+            return `${remainingDays} dia(s)`;
+        } else if (months < 12) {
+            return `${months} mês(es) e ${remainingDays} dia(s)`;
+        } else {
+            const years = Math.floor(months / 12);
+            const remainingMonths = months % 12;
+            return `${years} ano(s), ${remainingMonths} mês(es) e ${remainingDays} dia(s)`;
+        }
+    } catch (e) {
+        return 'Erro ao calcular idade';
     }
 };
 
-const getNextEvents = (baby) => {
-    const allEvents = [
-        ...(baby.events || []).filter(e => !e.completed).map(e => ({ ...e, type: e.type, date: parseISO(e.date) })),
-        ...(baby.vaccines || []).filter(v => v.status === 'pending').map(v => ({ ...v, type: 'vaccine', name: v.name, date: parseISO(v.date) })),
+const getNextEvents = (events = [], vaccines = []) => {
+    const all = [
+        ...events.filter(e => !(e.completed === 1 || e.completed === true)).map(e => ({ ...e, name: e.title || e.name, type: e.type, date: safeParseDate(e.date) })),
+        ...vaccines.filter(v => v.status === 'pending').map(v => ({ ...v, type: 'vaccine', name: v.name, date: safeParseDate(v.date) })),
     ];
 
-    const sortedEvents = allEvents.sort((a, b) => a.date - b.date);
+    const sortedEvents = all.sort((a, b) => a.date - b.date);
     return sortedEvents.slice(0, 3);
 };
 
-const getStats = (baby) => {
-    const totalEvents = (baby.events || []).length;
-    const completedEvents = (baby.events || []).filter(e => e.completed).length;
-    const totalVaccines = (baby.vaccines || []).length;
-    const completedVaccines = (baby.vaccines || []).filter(v => v.status === 'completed').length;
-    const totalMilestones = (baby.milestones || []).length;
-    const achievedMilestones = (baby.milestones || []).filter(m => m.achieved).length;
-    const totalPhotos = (baby.gallery || []).length;
-
+const getStats = (events = [], vaccines = [], milestones = [], gallery = []) => {
     return {
-        events: { total: totalEvents, completed: completedEvents },
-        vaccines: { total: totalVaccines, completed: completedVaccines },
-        milestones: { total: totalMilestones, achieved: achievedMilestones },
-        photos: totalPhotos
+        events: { total: events.length, completed: events.filter(e => e.completed === 1 || e.completed === true).length },
+        vaccines: { total: vaccines.length, completed: vaccines.filter(v => v.completed === 1 || v.completed === true || v.status === 'completed').length },
+        milestones: { total: milestones.length, achieved: milestones.filter(m => m.completed === 1 || m.completed === true || m.achieved).length },
+        photos: gallery.length
     };
 };
 
-const getInsights = (baby) => {
+const getInsights = (events = [], vaccines = [], milestones = []) => {
     const now = new Date();
     const insights = [];
 
     // Check for overdue medications
-    const overdueMeds = (baby.events || []).filter(e => 
-        e.type === 'medication' && !e.completed && new Date(e.date) < now
+    const overdueMeds = events.filter(e =>
+        e.type === 'medication' && (e.completed === 0 || !e.completed) && safeParseDate(e.date) < now
     );
     if (overdueMeds.length > 0) {
         insights.push({
@@ -72,10 +75,10 @@ const getInsights = (baby) => {
     }
 
     // Check for upcoming vaccines
-    const upcomingVaccines = (baby.vaccines || []).filter(v => 
-        v.status === 'pending' && isAfter(new Date(v.date), now) && 
-        new Date(v.date) <= subDays(now, -7)
-    );
+    const upcomingVaccines = vaccines.filter(v => {
+        const d = safeParseDate(v.date);
+        return v.status === 'pending' && isAfter(d, now) && d <= subDays(now, -7);
+    });
     if (upcomingVaccines.length > 0) {
         insights.push({
             type: 'info',
@@ -83,36 +86,6 @@ const getInsights = (baby) => {
             title: 'Vacinas Próximas',
             description: `${upcomingVaccines.length} vacina(s) agendada(s) para esta semana`,
             color: 'text-blue-600 bg-blue-50'
-        });
-    }
-
-    // Check milestone progress
-    const recentMilestones = (baby.milestones || []).filter(m => 
-        m.achieved && new Date(m.date) >= subDays(now, 30)
-    );
-    if (recentMilestones.length > 0) {
-        insights.push({
-            type: 'success',
-            icon: Target,
-            title: 'Marcos Recentes',
-            description: `${recentMilestones.length} marco(s) conquistado(s) este mês`,
-            color: 'text-green-600 bg-green-50'
-        });
-    }
-
-    // Activity insight
-    const recentActivity = [
-        ...(baby.events || []).filter(e => new Date(e.date) >= subDays(now, 7)),
-        ...(baby.vaccines || []).filter(v => new Date(v.date) >= subDays(now, 7)),
-        ...(baby.milestones || []).filter(m => new Date(m.date) >= subDays(now, 7))
-    ];
-    if (recentActivity.length > 5) {
-        insights.push({
-            type: 'activity',
-            icon: Zap,
-            title: 'Semana Ativa',
-            description: `${recentActivity.length} atividades registradas esta semana`,
-            color: 'text-purple-600 bg-purple-50'
         });
     }
 
@@ -136,26 +109,29 @@ const InsightCard = ({ insight, delay = 0 }) => (
     </motion.div>
 );
 
-const WeeklyActivity = ({ baby }) => {
+const WeeklyActivity = ({ events = [], vaccines = [], milestones = [] }) => {
     const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
     const today = new Date();
     const weekData = Array.from({ length: 7 }, (_, i) => {
         const date = subDays(today, 6 - i);
         const dayEvents = [
-            ...(baby.events || []).filter(e => 
-                format(new Date(e.date), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
-            ),
-            ...(baby.vaccines || []).filter(v => 
-                format(new Date(v.date), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
-            ),
-            ...(baby.milestones || []).filter(m => 
-                format(new Date(m.date), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
-            )
+            ...events.filter(e => {
+                const d = safeParseDate(e.date);
+                return format(d, 'yyyy-MM-dd') === format(safeParseDate(date), 'yyyy-MM-dd');
+            }),
+            ...vaccines.filter(v => {
+                const d = safeParseDate(v.date);
+                return format(d, 'yyyy-MM-dd') === format(safeParseDate(date), 'yyyy-MM-dd');
+            }),
+            ...milestones.filter(m => {
+                const d = safeParseDate(m.date);
+                return format(d, 'yyyy-MM-dd') === format(safeParseDate(date), 'yyyy-MM-dd');
+            })
         ];
         return {
             day: weekDays[date.getDay()],
             count: dayEvents.length,
-            isToday: format(date, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd')
+            isToday: format(safeParseDate(date), 'yyyy-MM-dd') === format(safeParseDate(today), 'yyyy-MM-dd')
         };
     });
 
@@ -170,11 +146,10 @@ const WeeklyActivity = ({ baby }) => {
                 <div className="flex items-end justify-between gap-2 h-20">
                     {weekData.map((day, index) => (
                         <div key={index} className="flex flex-col items-center gap-2 flex-1">
-                            <div 
-                                className={`w-full rounded-t-lg transition-all duration-500 ${
-                                    day.isToday ? 'bg-blue-500' : 'bg-gray-300'
-                                }`}
-                                style={{ 
+                            <div
+                                className={`w-full rounded-t-lg transition-all duration-500 ${day.isToday ? 'bg-blue-500' : 'bg-gray-300'
+                                    }`}
+                                style={{
                                     height: `${(day.count / maxCount) * 60}px`,
                                     minHeight: day.count > 0 ? '8px' : '2px'
                                 }}
@@ -240,27 +215,36 @@ const DashboardSkeleton = () => (
 
 const DashboardContent = ({ baby, setActiveTab, updateBabyData, onEditBaby, onAddEvent }) => {
     const [isLoading, setIsLoading] = useState(true);
+    const [allEvents, setAllEvents] = useState([]);
     const [nextEvents, setNextEvents] = useState([]);
     const [stats, setStats] = useState({});
     const [insights, setInsights] = useState([]);
 
     useEffect(() => {
-        const loadDashboard = async () => {
+        const loadDashboardData = async () => {
+            if (!baby?.id) return;
             setIsLoading(true);
-            await new Promise(resolve => setTimeout(resolve, 600));
-            
-            const events = getNextEvents(baby);
-            const babyStats = getStats(baby);
-            const babyInsights = getInsights(baby);
-            
-            setNextEvents(events);
-            setStats(babyStats);
-            setInsights(babyInsights);
-            setIsLoading(false);
+            try {
+                const eventsRaw = await api.getEvents(baby.id);
+                // Categorize for UI compatibility
+                const events = eventsRaw.filter(e => ['medication', 'appointment'].includes(e.type));
+                const vaccines = eventsRaw.filter(v => v.type === 'vaccine');
+                const milestones = eventsRaw.filter(m => m.type === 'milestone');
+                const gallery = eventsRaw.filter(g => g.type === 'photo');
+
+                setAllEvents(eventsRaw);
+                setNextEvents(getNextEvents(events, vaccines));
+                setStats(getStats(events, vaccines, milestones, gallery));
+                setInsights(getInsights(events, vaccines, milestones));
+            } catch (error) {
+                console.error("Dashboard load error:", error);
+            } finally {
+                setIsLoading(false);
+            }
         };
 
-        loadDashboard();
-    }, [baby]);
+        loadDashboardData();
+    }, [baby?.id]);
 
     if (isLoading) {
         return <DashboardSkeleton />;
@@ -276,7 +260,7 @@ const DashboardContent = ({ baby, setActiveTab, updateBabyData, onEditBaby, onAd
             >
                 <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-400/20 to-purple-400/20 rounded-full transform translate-x-16 -translate-y-16"></div>
                 <div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-pink-400/20 to-yellow-400/20 rounded-full transform -translate-x-12 translate-y-12"></div>
-                
+
                 <div className="relative z-10 flex flex-col sm:flex-row items-center sm:items-start space-y-6 sm:space-y-0 sm:space-x-8">
                     <div className="flex flex-col items-center text-center">
                         <div className="relative">
@@ -296,18 +280,18 @@ const DashboardContent = ({ baby, setActiveTab, updateBabyData, onEditBaby, onAd
                             <span className="text-sm font-medium text-blue-700">Meu Bebê</span>
                         </div>
                     </div>
-                    
+
                     <div className="flex-1 text-center sm:text-left">
                         <div className="space-y-4">
                             <div>
                                 <p className="text-lg text-gray-700 mb-2">
-                                    Nascido(a) em {format(parseISO(baby.birthDate), 'dd \'de\' MMMM, yyyy', { locale: ptBR })}
+                                    Nascido(a) em {format(safeParseDate(baby.birthDate), 'dd \'de\' MMMM, yyyy', { locale: ptBR })}
                                 </p>
                                 <p className="text-2xl font-bold gradient-text">
                                     {getBabyAge(baby.birthDate)}
                                 </p>
                             </div>
-                            
+
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-xl p-3">
                                     <div className="text-sm text-blue-600 font-medium">Peso</div>
@@ -318,7 +302,7 @@ const DashboardContent = ({ baby, setActiveTab, updateBabyData, onEditBaby, onAd
                                     <div className="text-xl font-bold text-purple-800">{baby.height}</div>
                                 </div>
                             </div>
-                            
+
                             <Button onClick={onEditBaby} className="btn-gradient text-white border-0 w-full sm:w-auto">
                                 <Edit className="w-4 h-4 mr-2" />
                                 Editar Perfil
@@ -388,9 +372,14 @@ const DashboardContent = ({ baby, setActiveTab, updateBabyData, onEditBaby, onAd
             {/* Weekly Activity Chart */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-1">
-                    <WeeklyActivity baby={baby} />
+                    <WeeklyActivity
+                        allEvents={allEvents}
+                        events={allEvents.filter(e => ['medication', 'appointment', 'feeding', 'sleep', 'diaper', 'bath'].includes(e.type))}
+                        vaccines={allEvents.filter(e => e.type === 'vaccine')}
+                        milestones={allEvents.filter(e => e.type === 'milestone')}
+                    />
                 </div>
-                
+
                 {/* Next Events Card */}
                 <motion.div
                     className="lg:col-span-2 glass-card rounded-3xl p-6"
@@ -411,12 +400,12 @@ const DashboardContent = ({ baby, setActiveTab, updateBabyData, onEditBaby, onAd
                             Adicionar
                         </Button>
                     </div>
-                    
+
                     <div className="space-y-4">
                         {nextEvents.length > 0 ? (
                             nextEvents.map((event, index) => (
                                 <motion.div
-                                    key={event.id}
+                                    key={event.id || `event-${index}`}
                                     className="gradient-card rounded-2xl p-4 floating-card"
                                     initial={{ opacity: 0, x: -20 }}
                                     animate={{ opacity: 1, x: 0 }}
@@ -433,8 +422,8 @@ const DashboardContent = ({ baby, setActiveTab, updateBabyData, onEditBaby, onAd
                                             )}
                                         </div>
                                         <div className="text-left sm:text-right flex-shrink-0 bg-white/50 rounded-lg p-2">
-                                            <p className="text-sm font-bold text-gray-800">{format(event.date, 'dd/MM/yyyy', { locale: ptBR })}</p>
-                                            <p className="text-xs text-gray-600">{format(event.date, 'HH:mm', { locale: ptBR })}</p>
+                                            <p className="text-sm font-bold text-gray-800">{format(safeParseDate(event.date), 'dd/MM/yyyy', { locale: ptBR })}</p>
+                                            <p className="text-xs text-gray-600">{format(safeParseDate(event.date), 'HH:mm', { locale: ptBR })}</p>
                                         </div>
                                     </div>
                                 </motion.div>

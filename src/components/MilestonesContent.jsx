@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { TrendingUp, Plus, Star, CheckCircle, Trophy, Sparkles, Target, BarChart3, Calendar, Award, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,10 @@ import { toast } from '@/components/ui/use-toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { format, differenceInMonths, parseISO, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { api } from '@/services/api';
+import { safeParseDate } from '@/lib/utils';
+
+
 
 const expectedMilestones = [
     { ageMonths: 1, milestone: 'Primeiro sorriso', category: 'social' },
@@ -35,16 +39,17 @@ const categoryColors = {
 };
 
 const MilestoneEvolutionChart = ({ milestones, baby }) => {
-    const babyAgeMonths = differenceInMonths(new Date(), parseISO(baby.birthDate));
-    
+    const babyBirthDate = safeParseDate(baby?.birthDate);
+    const babyAgeMonths = isNaN(babyBirthDate.getTime()) ? 0 : differenceInMonths(new Date(), babyBirthDate);
+
     // Criar dados para o gráfico dos últimos 12 meses
     const chartData = Array.from({ length: 12 }, (_, i) => {
         const monthsAgo = 11 - i;
         const targetDate = new Date();
         targetDate.setMonth(targetDate.getMonth() - monthsAgo);
-        
+
         const monthMilestones = milestones.filter(m => {
-            const milestoneDate = new Date(m.date);
+            const milestoneDate = safeParseDate(m.date);
             return isWithinInterval(milestoneDate, {
                 start: startOfMonth(targetDate),
                 end: endOfMonth(targetDate)
@@ -52,7 +57,7 @@ const MilestoneEvolutionChart = ({ milestones, baby }) => {
         });
 
         return {
-            month: format(targetDate, 'MMM', { locale: ptBR }),
+            month: format(safeParseDate(targetDate), 'MMM', { locale: ptBR }),
             achieved: monthMilestones.filter(m => m.achieved).length,
             total: monthMilestones.length,
             expected: expectedMilestones.filter(em => em.ageMonths <= babyAgeMonths - monthsAgo && em.ageMonths > babyAgeMonths - monthsAgo - 1).length
@@ -81,7 +86,7 @@ const MilestoneEvolutionChart = ({ milestones, baby }) => {
                             <span>Esperados</span>
                         </div>
                     </div>
-                    
+
                     <div className="flex items-end justify-between gap-1 h-32">
                         {chartData.map((data, index) => (
                             <div key={index} className="flex flex-col items-center gap-1 flex-1">
@@ -116,15 +121,15 @@ const MilestoneEvolutionChart = ({ milestones, baby }) => {
 const MilestonesByCategory = ({ milestones }) => {
     const categoryStats = Object.keys(categoryColors).map(category => {
         const categoryMilestones = milestones.filter(m => {
-            const expectedMilestone = expectedMilestones.find(em => 
+            const expectedMilestone = expectedMilestones.find(em =>
                 em.milestone.toLowerCase().includes(m.milestone.toLowerCase().split(' ')[0])
             );
             return expectedMilestone?.category === category;
         });
-        
+
         const achieved = categoryMilestones.filter(m => m.achieved).length;
         const total = categoryMilestones.length;
-        
+
         return {
             category,
             achieved,
@@ -168,24 +173,24 @@ const MilestonesByCategory = ({ milestones }) => {
 };
 
 const MilestoneComparison = ({ baby, milestones }) => {
-    const babyAgeMonths = differenceInMonths(new Date(), parseISO(baby.birthDate));
+    const babyAgeMonths = differenceInMonths(new Date(), safeParseDate(baby.birthDate));
     const achievedMilestones = milestones.filter(m => m.achieved);
-    
+
     // Marcos esperados para a idade atual
     const expectedForAge = expectedMilestones.filter(em => em.ageMonths <= babyAgeMonths);
-    const achievedExpected = achievedMilestones.filter(am => 
+    const achievedExpected = achievedMilestones.filter(am =>
         expectedForAge.some(em => em.milestone.toLowerCase().includes(am.milestone.toLowerCase().split(' ')[0]))
     );
-    
-    const developmentScore = expectedForAge.length > 0 ? 
+
+    const developmentScore = expectedForAge.length > 0 ?
         Math.round((achievedExpected.length / expectedForAge.length) * 100) : 100;
-    
+
     const getScoreColor = (score) => {
         if (score >= 80) return 'text-green-600 bg-green-50';
         if (score >= 60) return 'text-yellow-600 bg-yellow-50';
         return 'text-red-600 bg-red-50';
     };
-    
+
     const getScoreLabel = (score) => {
         if (score >= 80) return 'Excelente';
         if (score >= 60) return 'Bom';
@@ -227,12 +232,12 @@ const MilestoneComparison = ({ baby, milestones }) => {
                         </div>
                     </div>
                 </div>
-                
+
                 <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full ${getScoreColor(developmentScore)}`}>
                     <Trophy className="w-4 h-4" />
                     <span className="font-medium">{getScoreLabel(developmentScore)}</span>
                 </div>
-                
+
                 <div className="grid grid-cols-2 gap-4 text-sm">
                     <div className="text-center">
                         <div className="text-lg font-bold text-green-600">{achievedExpected.length}</div>
@@ -249,10 +254,34 @@ const MilestoneComparison = ({ baby, milestones }) => {
 };
 
 const MilestonesContent = ({ baby, updateBabyData }) => {
+    const [isLoading, setIsLoading] = useState(true);
+    const [milestones, setMilestones] = useState([]);
     const [showForm, setShowForm] = useState(false);
     const [newMilestone, setNewMilestone] = useState({ milestone: '', date: '' });
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showCharts, setShowCharts] = useState(false);
+
+    useEffect(() => {
+        const loadMilestones = async () => {
+            if (!baby?.id) return;
+            setIsLoading(true);
+            try {
+                const events = await api.getEvents(baby.id);
+                const filtered = events.filter(e => e.type === 'milestone').map(m => ({
+                    ...m,
+                    date: safeParseDate(m.date),
+                    achieved: m.completed || m.achieved,
+                    milestone: m.title || m.milestone || 'Marco sem nome'
+                }));
+                setMilestones(filtered);
+            } catch (error) {
+                console.error("Load milestones error:", error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        loadMilestones();
+    }, [baby?.id]);
 
     const handleAddMilestone = async () => {
         if (!newMilestone.milestone || !newMilestone.date) {
@@ -265,23 +294,24 @@ const MilestonesContent = ({ baby, updateBabyData }) => {
         }
 
         setIsSubmitting(true);
-
         try {
-            await new Promise(resolve => setTimeout(resolve, 800));
-
-            const newEntry = {
-                id: Date.now(),
-                milestone: newMilestone.milestone,
+            await api.addEvent({
+                babyId: baby.id,
+                type: 'milestone',
+                title: newMilestone.milestone,
                 date: new Date(newMilestone.date).toISOString(),
-                achieved: true,
-            };
+                completed: true
+            });
 
-            const updatedBaby = {
-                ...baby,
-                milestones: [...(baby.milestones || []), newEntry],
-            };
+            // Recarregar
+            const events = await api.getEvents(baby.id);
+            setMilestones(events.filter(e => e.type === 'milestone').map(m => ({
+                ...m,
+                date: safeParseDate(m.date),
+                achieved: m.completed || m.achieved,
+                milestone: m.title || m.milestone || 'Marco sem nome'
+            })));
 
-            updateBabyData(updatedBaby);
             toast({
                 title: "🎉 Marco Conquistado!",
                 description: `${newMilestone.milestone} foi registrado com sucesso.`,
@@ -299,23 +329,35 @@ const MilestonesContent = ({ baby, updateBabyData }) => {
         }
     };
 
-    const toggleAchieved = (milestoneId) => {
-        const updatedMilestones = (baby.milestones || []).map(m =>
-            m.id === milestoneId ? { ...m, achieved: !m.achieved } : m
-        );
-        const updatedBaby = { ...baby, milestones: updatedMilestones };
-        updateBabyData(updatedBaby);
-        
-        const milestone = updatedMilestones.find(m => m.id === milestoneId);
-        if (milestone?.achieved) {
-            toast({
-                title: "🌟 Marco Alcançado!",
-                description: `Parabéns! ${milestone.milestone} foi conquistado.`,
+    const toggleAchieved = async (milestoneId) => {
+        const milestone = milestones.find(m => m.id === milestoneId);
+        if (!milestone) return;
+
+        const newStatus = !milestone.achieved;
+        try {
+            await api.updateEvent(milestoneId, {
+                ...milestone,
+                completed: newStatus
             });
+
+            setMilestones(milestones.map(m =>
+                m.id === milestoneId ? { ...m, achieved: newStatus, completed: newStatus } : m
+            ));
+
+            if (newStatus) {
+                toast({
+                    title: "🌟 Marco Alcançado!",
+                    description: `Parabéns! ${milestone.milestone} foi conquistado.`,
+                });
+            }
+        } catch (error) {
+            toast({ title: "Erro ao atualizar marco", variant: "destructive" });
         }
     };
 
-    const milestones = (baby.milestones || []).sort((a, b) => new Date(b.date) - new Date(a.date));
+    if (isLoading) return <div className="flex justify-center p-12"><LoadingSpinner /></div>;
+
+    const milestonesSorted = [...milestones].sort((a, b) => b.date - a.date);
     const achievedCount = milestones.filter(m => m.achieved).length;
     const achievementRate = milestones.length > 0 ? Math.round((achievedCount / milestones.length) * 100) : 0;
 
@@ -367,7 +409,7 @@ const MilestonesContent = ({ baby, updateBabyData }) => {
                                 <BarChart3 className="w-4 h-4 mr-2" />
                                 {showCharts ? 'Ocultar' : 'Mostrar'} Gráficos
                             </Button>
-                            <Button 
+                            <Button
                                 onClick={() => setShowForm(!showForm)}
                                 className="btn-gradient text-white border-0"
                             >
@@ -400,7 +442,7 @@ const MilestonesContent = ({ baby, updateBabyData }) => {
                                 <span className="text-sm font-bold text-pink-600">{achievementRate}%</span>
                             </div>
                             <div className="w-full bg-gray-200 rounded-full h-3">
-                                <motion.div 
+                                <motion.div
                                     className="bg-gradient-to-r from-pink-400 to-purple-500 h-3 rounded-full"
                                     initial={{ width: 0 }}
                                     animate={{ width: `${achievementRate}%` }}
@@ -411,38 +453,38 @@ const MilestonesContent = ({ baby, updateBabyData }) => {
                     )}
 
                     {showForm && (
-                        <motion.div 
-                            className="mb-6 gradient-card rounded-2xl p-6 border-0" 
-                            initial={{ opacity: 0, height: 0 }} 
+                        <motion.div
+                            className="mb-6 gradient-card rounded-2xl p-6 border-0"
+                            initial={{ opacity: 0, height: 0 }}
                             animate={{ opacity: 1, height: 'auto' }}
                         >
                             <div className="grid grid-cols-1 gap-4">
                                 <div>
                                     <Label htmlFor="milestoneDesc" className="text-gray-700 font-medium">Descrição do Marco</Label>
-                                    <Input 
+                                    <Input
                                         id="milestoneDesc"
-                                        type="text" 
-                                        placeholder="Ex: Primeiro sorriso, Engatinhar, Primeiras palavras" 
-                                        value={newMilestone.milestone} 
-                                        onChange={e => setNewMilestone({ ...newMilestone, milestone: e.target.value })} 
+                                        type="text"
+                                        placeholder="Ex: Primeiro sorriso, Engatinhar, Primeiras palavras"
+                                        value={newMilestone.milestone}
+                                        onChange={e => setNewMilestone({ ...newMilestone, milestone: e.target.value })}
                                         className="mt-2 border-2 border-pink-100 focus:border-pink-400 rounded-xl"
                                         disabled={isSubmitting}
                                     />
                                 </div>
                                 <div>
                                     <Label htmlFor="milestoneDate" className="text-gray-700 font-medium">Data da Conquista</Label>
-                                    <Input 
+                                    <Input
                                         id="milestoneDate"
-                                        type="date" 
-                                        value={newMilestone.date} 
-                                        onChange={e => setNewMilestone({ ...newMilestone, date: e.target.value })} 
+                                        type="date"
+                                        value={newMilestone.date}
+                                        onChange={e => setNewMilestone({ ...newMilestone, date: e.target.value })}
                                         className="mt-2 border-2 border-pink-100 focus:border-pink-400 rounded-xl"
                                         disabled={isSubmitting}
                                     />
                                 </div>
                             </div>
-                            <Button 
-                                onClick={handleAddMilestone} 
+                            <Button
+                                onClick={handleAddMilestone}
                                 className="mt-6 btn-gradient text-white border-0 w-full sm:w-auto"
                                 disabled={isSubmitting}
                             >
@@ -462,14 +504,13 @@ const MilestonesContent = ({ baby, updateBabyData }) => {
                     )}
 
                     <div className="space-y-4">
-                        {milestones.length > 0 ? milestones.map((m, index) => (
-                            <motion.div 
-                                key={m.id} 
-                                className={`gradient-card rounded-2xl p-4 floating-card border-0 ${
-                                    m.achieved 
-                                        ? 'bg-gradient-to-r from-green-50 to-emerald-50' 
-                                        : 'bg-gradient-to-r from-pink-50 to-purple-50'
-                                }`}
+                        {milestonesSorted.length > 0 ? milestonesSorted.map((m, index) => (
+                            <motion.div
+                                key={m.id || `milestone-${index}`}
+                                className={`gradient-card rounded-2xl p-4 floating-card border-0 ${m.achieved
+                                    ? 'bg-gradient-to-r from-green-50 to-emerald-50'
+                                    : 'bg-gradient-to-r from-pink-50 to-purple-50'
+                                    }`}
                                 initial={{ opacity: 0, x: -20 }}
                                 animate={{ opacity: 1, x: 0 }}
                                 transition={{ delay: index * 0.1 }}
@@ -477,10 +518,10 @@ const MilestonesContent = ({ baby, updateBabyData }) => {
                             >
                                 <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                                     <div className="flex items-start sm:items-center gap-4 flex-1">
-                                        <Button 
-                                            variant="ghost" 
-                                            size="icon" 
-                                            onClick={() => toggleAchieved(m.id)} 
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            onClick={() => toggleAchieved(m.id)}
                                             className="flex-shrink-0 w-12 h-12 rounded-full hover:scale-110 transition-transform"
                                         >
                                             {m.achieved ? (
@@ -493,22 +534,20 @@ const MilestonesContent = ({ baby, updateBabyData }) => {
                                             )}
                                         </Button>
                                         <div className="flex-1 min-w-0">
-                                            <h3 className={`font-bold text-lg mb-1 ${
-                                                m.achieved ? 'text-gray-800' : 'text-gray-600'
-                                            }`}>
+                                            <h3 className={`font-bold text-lg mb-1 ${m.achieved ? 'text-gray-800' : 'text-gray-600'
+                                                }`}>
                                                 {m.milestone}
                                             </h3>
                                             <p className="text-sm text-gray-600">
-                                                {m.achieved ? 'Conquistado em' : 'Meta para'} {format(new Date(m.date), "d 'de' MMMM, yyyy", { locale: ptBR })}
+                                                {m.achieved ? 'Conquistado em' : 'Meta para'} {format(safeParseDate(m.date), "d 'de' MMMM, yyyy", { locale: ptBR })}
                                             </p>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                                            m.achieved 
-                                                ? 'bg-green-100 text-green-800' 
-                                                : 'bg-pink-100 text-pink-800'
-                                        }`}>
+                                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${m.achieved
+                                            ? 'bg-green-100 text-green-800'
+                                            : 'bg-pink-100 text-pink-800'
+                                            }`}>
                                             {m.achieved ? 'Conquistado' : 'Em progresso'}
                                         </span>
                                         {m.achieved && (
@@ -528,7 +567,7 @@ const MilestonesContent = ({ baby, updateBabyData }) => {
                                 </div>
                                 <h3 className="text-xl font-bold text-gray-600 mb-2">Nenhum marco registrado ainda</h3>
                                 <p className="text-gray-500 mb-4">Comece registrando os marcos de desenvolvimento do seu bebê</p>
-                                <Button 
+                                <Button
                                     onClick={() => setShowForm(true)}
                                     className="btn-gradient text-white border-0"
                                 >

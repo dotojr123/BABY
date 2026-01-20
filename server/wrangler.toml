@@ -1,0 +1,17 @@
+name = "baby-backend"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+# Database D1
+[[d1_databases]]
+binding = "DB" # binding name used in code: env.DB
+database_name = "baby-db"
+database_id = "cb32abd7-a2fa-40df-90f8-30569b48a5ba"
+
+# Storage R2 (Desativado temporariamente)
+# [[r2_buckets]]
+# binding = "BUCKET"
+# bucket_name = "baby-attachments"
+
+[observability]
+enabled = true
